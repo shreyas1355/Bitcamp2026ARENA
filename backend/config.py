@@ -17,6 +17,8 @@ TARGET_PORT     = 8000
 # ── LangGraph execution ────────────────────────────────────────────────────────
 MAX_STEPS       = 50     # steps per episode before supervisor fires
 STEP_DELAY_S    = 0.3    # sleep between steps (keeps demo readable on dashboard)
+# Cyclic graph has no END; invoke stops at this Pregel step count — main.py restarts invoke.
+ARENA_RECURSION_LIMIT = 100_000
 
 # ── Memory ─────────────────────────────────────────────────────────────────────
 MAX_MEMORY_SIZE = 50     # max entries in short-term memory M (deque maxlen)

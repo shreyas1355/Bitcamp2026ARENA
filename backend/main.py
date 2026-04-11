@@ -9,15 +9,16 @@ Responsibilities:
 - Starts the LangGraph arena loop in a background thread on startup
 
 DEVELOPER NOTE:
-The vulnerable target app is mounted at /target with SecurityMiddleware
-(logging; enforcement phases in PROMPT). The arena loop is still commented
-out — uncomment after Phase 2 (langgraph_flow).
+The vulnerable target app is mounted at /target with SecurityMiddleware.
+The arena runs in a background thread via arena.invoke(SYSTEM_STATE) so HTTP
+and LangGraph share one dict (PROMPT Rule 4). PROMPT's verify snippet uses
+get_initial_state() inline; production uses this module's SYSTEM_STATE only.
 """
 
+import asyncio
 import json
 import os
 import threading
-import time
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -37,10 +38,12 @@ load_dotenv()
 
 from backend.state import get_initial_state, SystemState
 from backend.config import (
+    ARENA_RECURSION_LIMIT,
     KNOWLEDGE_BASE_FILE,
     EPISODE_POOL_FILE,
     MAX_STEPS,
 )
+from backend.ws.broadcaster import manager
 
 STATE_LOCK = threading.Lock()
 
@@ -71,26 +74,44 @@ SYSTEM_STATE: SystemState = get_initial_state(
 
 def _run_arena():
     """
-    Runs the LangGraph arena loop in a background thread.
-    Uncomment the arena import and invoke call after Phase 2 is complete.
-    """
-    # TODO (Dev A, Phase 2): Uncomment after langgraph_flow.py is implemented
-    # from backend.graph.langgraph_flow import arena
-    # try:
-    #     arena.invoke(SYSTEM_STATE)
-    # except Exception as e:
-    #     print(f"[ERROR] Arena loop crashed: {e}")
-    #     raise
+    Runs the LangGraph arena in a background thread.
 
-    # Placeholder: print heartbeat so you can confirm the thread starts
-    print("[ARENA] Arena thread started — loop not yet wired (Phase 2)")
+    Uses the process-wide SYSTEM_STATE singleton so nodes, middleware, and /state
+    see the same data. The graph has no END node; LangGraph stops after
+    ARENA_RECURSION_LIMIT supersteps, then we restart invoke on the same dict.
+    """
+    from backend.graph.langgraph_flow import arena
+
+    try:
+        from langgraph.errors import GraphRecursionError
+    except ImportError:  # pragma: no cover
+        GraphRecursionError = type("GraphRecursionError", (Exception,), {})
+
+    cfg = {"recursion_limit": ARENA_RECURSION_LIMIT}
+    print("[ARENA] LangGraph thread started — invoke(SYSTEM_STATE)")
+
     while True:
-        time.sleep(5)
-        print(f"[ARENA] Heartbeat — episode {SYSTEM_STATE['episode']}, step {SYSTEM_STATE['step']}")
+        try:
+            arena.invoke(SYSTEM_STATE, cfg)
+        except GraphRecursionError:
+            print(
+                "[ARENA] Recursion limit reached — restarting invoke "
+                f"(same SYSTEM_STATE, episode={SYSTEM_STATE['episode']})"
+            )
+            continue
+        except Exception as e:
+            print(f"[ERROR] Arena invoke failed: {e}")
+            import traceback
+
+            traceback.print_exc()
+            break
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # WebSocket broadcasts from sync graph nodes use this loop (see broadcaster.py)
+    manager.set_loop(asyncio.get_running_loop())
+
     # Configure Gemini
     api_key = os.environ.get("GEMINI_API_KEY")
     if api_key:
@@ -136,8 +157,6 @@ app.include_router(target_router, prefix="/target", tags=["target"])
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
-
-from backend.ws.broadcaster import manager
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):

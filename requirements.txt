@@ -1,7 +1,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 langgraph==0.2.28
-langchain-core==0.2.10
+# langchain-core: transitive dependency of langgraph (>=0.2.39,<0.4) — do not pin an older version
 google-generativeai==0.7.2
 httpx==0.27.0
 networkx==3.3
