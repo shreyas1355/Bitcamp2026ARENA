@@ -69,11 +69,13 @@ def risk_node(state: SystemState) -> dict:
     trigger = new_step >= state.get("max_steps", MAX_STEPS)
 
     # Append to short-term memory M
+    # V2: pass llm_decision so evaluation_agent can surface Ollama rationale
     short_term.append_step(
         obs=state.get("pruned_observation", {}),
         attack=state.get("last_attack"),
         defense=state.get("last_defense"),
         result=_build_result_string(state),
+        llm_decision=state.get("llm_decision"),
     )
 
     # Accumulate confirmed vulnerabilities

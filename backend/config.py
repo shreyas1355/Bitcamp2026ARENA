@@ -78,6 +78,7 @@ SAMPLE_LOGS_FILE    = "data/sample_logs.jsonl"
 OLLAMA_MODEL          = os.environ.get("OLLAMA_MODEL", "llama3")
 OLLAMA_FALLBACK_MODEL = "mistral"   # tried if llama3 is not available
 OLLAMA_TIMEOUT_S      = 10.0        # per-step timeout; if exceeded, use fallback decision
+OLLAMA_PING_TIMEOUT_S = 5.0         # startup health check for check_ollama_available()
 
 # ── V2: Attack layer escalation ────────────────────────────────────────────────
 # If a layer's success rate drops below this, LLM is hinted to escalate.
