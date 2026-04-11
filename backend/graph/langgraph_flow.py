@@ -97,8 +97,7 @@ def _stub_patch_node(state) -> dict:
     }
 
 
-# V2: import real patch_node once patch_agent.py is implemented:
-# from backend.agents.supervisor.patch_agent import patch_node as _real_patch_node
+from backend.agents.supervisor.patch_agent import patch_node as _real_patch_node
 
 # ── Active node assignments (swap stubs for reals here) ───────────────────────
 
@@ -106,7 +105,7 @@ red_node        = _stub_red_node
 blue_node       = _stub_blue_node
 prune_node      = _real_prune_node
 evaluation_node = _real_evaluation_node
-patch_node      = _stub_patch_node   # V2: swap for _real_patch_node once implemented
+patch_node      = _real_patch_node
 
 
 # ── Step delay wrapper ────────────────────────────────────────────────────────
