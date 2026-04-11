@@ -121,6 +121,18 @@ async def lifespan(app: FastAPI):
     else:
         print("[WARN] GEMINI_API_KEY not set — supervisor will not function")
 
+    # V2: Check Ollama availability (red team LLM — runs locally, zero API cost)
+    try:
+        from backend.llm.ollama_client import check_ollama_available
+        if check_ollama_available():
+            from backend.config import OLLAMA_MODEL
+            print(f"[STARTUP] Ollama available — model: {OLLAMA_MODEL}")
+        else:
+            print("[WARN] Ollama not available — red team will use rule-based fallback")
+            print("[WARN] To enable: `ollama serve` then `ollama pull llama3`")
+    except ImportError:
+        print("[WARN] ollama_client not yet implemented — red team uses fallback")
+
     # Start arena loop in background thread
     arena_thread = threading.Thread(target=_run_arena, daemon=True, name="arena-loop")
     arena_thread.start()
@@ -181,14 +193,18 @@ async def get_state():
     """
     # Return a serializable subset (exclude non-serializable fields if any)
     return {
-        "episode":            SYSTEM_STATE["episode"],
-        "step":               SYSTEM_STATE["step"],
-        "risk_score":         SYSTEM_STATE["risk_score"],
-        "risk_history":       SYSTEM_STATE["risk_history"],
-        "blocked_ips":        SYSTEM_STATE["blocked_ips"],
-        "active_mitigations": SYSTEM_STATE["active_mitigations"],
+        "episode":               SYSTEM_STATE["episode"],
+        "step":                  SYSTEM_STATE["step"],
+        "risk_score":            SYSTEM_STATE["risk_score"],
+        "risk_history":          SYSTEM_STATE["risk_history"],
+        "blocked_ips":           SYSTEM_STATE["blocked_ips"],
+        "active_mitigations":    SYSTEM_STATE["active_mitigations"],
         "vulnerabilities_found": SYSTEM_STATE["vulnerabilities_found"],
-        "supervisor_report":  SYSTEM_STATE["supervisor_report"],
+        "supervisor_report":     SYSTEM_STATE["supervisor_report"],
+        # V2 additions
+        "current_attack_layer":  SYSTEM_STATE.get("current_attack_layer", 1),
+        "patch_records":         SYSTEM_STATE.get("patch_records", []),
+        "llm_decision":          SYSTEM_STATE.get("llm_decision"),
     }
 
 @app.get("/health")

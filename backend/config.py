@@ -71,3 +71,26 @@ LOG_FILE            = "data/logs.jsonl"
 EPISODE_POOL_FILE   = "data/episode_pool.json"
 KNOWLEDGE_BASE_FILE = "data/knowledge_base.json"
 SAMPLE_LOGS_FILE    = "data/sample_logs.jsonl"
+
+# ── V2: Ollama (local LLM for red team strategy) ───────────────────────────────
+# Called every step from strategy.py only. Zero API cost — runs locally.
+# Start with: `ollama serve`  |  Pull with: `ollama pull llama3`
+OLLAMA_MODEL          = os.environ.get("OLLAMA_MODEL", "llama3")
+OLLAMA_FALLBACK_MODEL = "mistral"   # tried if llama3 is not available
+OLLAMA_TIMEOUT_S      = 10.0        # per-step timeout; if exceeded, use fallback decision
+
+# ── V2: Attack layer escalation ────────────────────────────────────────────────
+# If a layer's success rate drops below this, LLM is hinted to escalate.
+ATTACK_LAYER_ESCALATION_THRESHOLD = 0.15
+
+# ── V2: Behavioral fingerprinting ─────────────────────────────────────────────
+FINGERPRINT_SIMILARITY_THRESHOLD = 0.80  # cosine similarity above this = same attacker
+FINGERPRINT_MIN_REQUESTS         = 5     # minimum requests needed to build a fingerprint
+
+# ── V2: Patch generation ──────────────────────────────────────────────────────
+PATCH_RECORDS_FILE           = "data/patch_records.json"
+PATCH_VERIFICATION_TIMEOUT_S = 5.0   # time allowed for verification HTTP request
+MAX_PATCHES_PER_EPISODE      = 5     # cap Gemini calls from patch_agent per episode
+
+# ── V2: Additional anomaly detection thresholds ───────────────────────────────
+ANOMALY_SUCCESS_RATE_THRESHOLD = 3   # successful 200s from one IP → anomalous success

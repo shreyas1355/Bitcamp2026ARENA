@@ -18,11 +18,14 @@ def reset_node(state: SystemState) -> dict:
 
     Fields that PERSIST across episodes (not reset):
     - episode_pool (E): grows across episodes
-    - knowledge_base (K): static, never changes
+    - knowledge_base (K): read-only; extended at runtime via ioc_exports ingestion
     - blocked_ips: carry forward (attackers stay blocked)
     - rate_limited_endpoints: carry forward
     - active_mitigations: carry forward (patched stays patched)
     - supervisor_report: carry forward (dashboard keeps showing last report)
+    - behavioral_fingerprints: V2 — fingerprints of blocked attackers, enables
+      cross-episode IP-rotation detection (MUST NOT be cleared)
+    - patch_records: V2 — accumulates verified patches across all episodes
 
     Fields that RESET for each new episode:
     - step → 0
@@ -37,6 +40,9 @@ def reset_node(state: SystemState) -> dict:
     - pruned_observation → {}
     - retrieved_similar_step → None
     - prior_recommendation → "none"
+    - llm_decision → None  (V2: fresh decision each episode start)
+    - current_attack_layer → 1  (V2: restart escalation ladder)
+    - ioc_exports → []  (V2: cleared after policy_agent ingests them into KB)
     """
     next_episode = state["episode"] + 1
     clear_memory()
@@ -62,4 +68,11 @@ def reset_node(state: SystemState) -> dict:
         "pruned_observation":    {},
         "retrieved_similar_step": None,
         "prior_recommendation":  "none",
+        # V2: reset per-episode LLM fields
+        "llm_decision":          None,
+        "current_attack_layer":  1,
+        "ioc_exports":           [],
+        # NOTE: behavioral_fingerprints and patch_records are NOT in this dict.
+        # LangGraph only updates fields present in the return dict, so those
+        # two fields carry forward automatically (Rule 14 in PROMPT_V2.md).
     }

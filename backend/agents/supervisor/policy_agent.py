@@ -56,7 +56,9 @@ Produce your analysis as this exact JSON schema:
       "severity": "<low|medium|high|critical>",
       "endpoint": "<affected endpoint path>",
       "cwe": "<CWE-XXX>",
-      "evidence": "<one sentence of evidence from the data>"
+      "evidence": "<one sentence of evidence from the data>",
+      "first_exploited_step": <int>,
+      "exploit_payload": "<the specific payload string that confirmed this vulnerability>"
     }}
   ],
   "mitigations": ["<concrete mitigation step>"],
@@ -199,8 +201,46 @@ def policy_node(state: SystemState) -> Dict[str, Any]:
     updated_pool = append_summary(str(summary))
     broadcast_episode_report(report, ep)
 
+    # V2: Ingest IOC exports into the knowledge base.
+    # Blue team anomaly rules append new attack patterns to ioc_exports during
+    # the episode. We add them to knowledge_base here so the next episode's
+    # Gemini prompt includes these newly discovered patterns.
+    updated_kb = list(state.get("knowledge_base") or [])
+    ioc_exports = state.get("ioc_exports") or []
+    new_ioc_count = 0
+    for ioc in ioc_exports:
+        kb_entry = ioc.get("kb_entry")
+        if kb_entry and isinstance(kb_entry, dict):
+            # Deduplicate by id field if present
+            existing_ids = {e.get("id") for e in updated_kb if isinstance(e, dict)}
+            entry_id = kb_entry.get("id")
+            if entry_id and entry_id in existing_ids:
+                continue
+            updated_kb.append(kb_entry)
+            new_ioc_count += 1
+
+    if new_ioc_count:
+        print(f"[SUPERVISOR] Ingested {new_ioc_count} new IOC(s) into knowledge base.")
+        # Persist the runtime additions to a separate file (never overwrite base KB)
+        _persist_runtime_kb(updated_kb)
+
     print(f"[SUPERVISOR] Episode {ep} complete. Risk: {report['risk_score']:.3f}")
     return {
         "supervisor_report": report,
-        "episode_pool": updated_pool,
+        "episode_pool":      updated_pool,
+        "knowledge_base":    updated_kb,
     }
+
+
+def _persist_runtime_kb(kb: list) -> None:
+    """
+    Persists the runtime-extended knowledge base to a separate file.
+    Never overwrites data/knowledge_base.json (the base file is read-only).
+    """
+    import json
+    runtime_path = "data/knowledge_base_runtime.json"
+    try:
+        with open(runtime_path, "w") as f:
+            json.dump(kb, f, indent=2)
+    except OSError as e:
+        print(f"[SUPERVISOR] Could not persist runtime KB: {e}")

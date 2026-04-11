@@ -106,3 +106,27 @@ def broadcast_episode_report(report: dict, episode: int):
         "episode": episode,
         "report":  report,
     })
+
+
+def broadcast_patch_summary(patch_records: list, episode: int):
+    """
+    V2: Called from patch_node after patch generation + verification.
+    Sends a PatchSummary message to all connected dashboard clients.
+    Only includes patches that were actually attempted (patch_applied=True).
+    """
+    manager.broadcast_sync({
+        "type":    "patch_summary",
+        "episode": episode,
+        "patches": [
+            {
+                "vulnerability":     p["vulnerability_name"],
+                "endpoint":          p["endpoint"],
+                "cwe":               p["cwe"],
+                "verified":          p["verified"],
+                "requires_human_review": p["requires_human_review"],
+                "evidence":          p["verification_evidence"],
+            }
+            for p in patch_records
+            if p.get("patch_applied")
+        ],
+    })

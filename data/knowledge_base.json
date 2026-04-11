@@ -38,5 +38,10 @@
     "id": "KB008",
     "tags": ["timing", "enumeration", "CWE-208", "username_enumeration"],
     "content": "Observable Timing Discrepancy: Use constant-time comparison for all authentication checks (hmac.compare_digest). Always execute the full authentication pipeline (including password hashing) even for nonexistent users — use a dummy hash. Return identical error messages and aim for identical response times regardless of which part of authentication failed. Detection: measure response time variance across many login attempts with different usernames."
+  },
+  {
+    "id": "KB009",
+    "tags": ["sqli", "encoding_evasion", "detection_bypass", "CWE-89"],
+    "content": "Double URL-encoding bypasses naive SQLi regex detection. The sequence ' → %27 → %2527 produces a payload that looks benign to string matching but decodes to a SQL injection character after server-side URL normalization. Always apply urllib.parse.unquote() iteratively (up to 3 times) before applying SQLi signature detection. This variant was discovered autonomously by the LLM red team in episode 3."
   }
 ]

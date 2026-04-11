@@ -1,18 +1,21 @@
 """
 langgraph_flow.py — StateGraph definition for the ACDA arena loop.
 
-Graph topology:
-  red → blue → prune → evaluation → risk ──┬──► policy → reset
-                                            │              │
-                                            └──────────────┘
+Graph topology (V2):
+  red → blue → prune → evaluation → risk ──┬──► policy → patch → reset
+                                            │                        │
+                                            └────────────────────────┘
                                          (loop when step < max_steps)
 
-DEVELOPER NOTE:
-Red and blue still use stubs until Dev B/C land. Prune, evaluation, risk,
-policy, and reset are wired to real modules. Graph topology must not change.
+V2 CHANGE: patch_node inserted between policy and reset.
+  policy_node = Gemini call 1 (episode analysis)
+  patch_node  = Gemini call 2 (patch generation + exec() + HTTP verify)
+  Together = 2 Gemini calls/episode, safely under 15 RPM free tier.
 
-Stub nodes return minimal valid dicts that satisfy the SystemState schema
-so the graph can run end-to-end before real agents exist.
+DEVELOPER NOTE:
+Red and blue still use stubs until agents are implemented. Prune, evaluation,
+risk, policy, patch, and reset are wired to real/stub modules. Graph topology
+must not change once set here.
 """
 
 import time
@@ -69,10 +72,10 @@ def _stub_blue_node(state: SystemState) -> dict:
     }
 
 
-# ── Real node imports (uncomment as each agent is implemented) ────────────────
+# ── Real node imports ─────────────────────────────────────────────────────────
 
-# TODO (Dev B): Replace _stub_red_node with backend.agents.red.strategy.red_node
-# TODO (Dev C): Replace _stub_blue_node with backend.agents.blue.log_monitor.blue_node
+# TODO: Replace _stub_red_node with backend.agents.red.strategy.red_node
+# TODO: Replace _stub_blue_node with backend.agents.blue.log_monitor.blue_node
 
 from backend.agents.supervisor.pruner import prune_node as _real_prune_node
 from backend.agents.supervisor.evaluation_agent import evaluation_node as _real_evaluation_node
@@ -82,12 +85,28 @@ from backend.agents.supervisor.policy_agent import policy_node
 from backend.graph.reset import reset_node
 
 
+def _stub_patch_node(state) -> dict:
+    """
+    Placeholder until backend/agents/supervisor/patch_agent.py is implemented.
+    LangGraph requires at least one field written per node, so we echo
+    patch_records back unchanged.
+    """
+    print(f"  [PATCH-STUB] episode={state['episode']} — patch_agent not yet implemented")
+    return {
+        "patch_records": state.get("patch_records", []),
+    }
+
+
+# V2: import real patch_node once patch_agent.py is implemented:
+# from backend.agents.supervisor.patch_agent import patch_node as _real_patch_node
+
 # ── Active node assignments (swap stubs for reals here) ───────────────────────
 
 red_node        = _stub_red_node
 blue_node       = _stub_blue_node
 prune_node      = _real_prune_node
 evaluation_node = _real_evaluation_node
+patch_node      = _stub_patch_node   # V2: swap for _real_patch_node once implemented
 
 
 # ── Step delay wrapper ────────────────────────────────────────────────────────
@@ -116,6 +135,7 @@ builder.add_node("prune",      prune_node)
 builder.add_node("evaluation", evaluation_node)
 builder.add_node("risk",       risk_node)
 builder.add_node("policy",     policy_node)
+builder.add_node("patch",      patch_node)    # V2: new node
 builder.add_node("reset",      reset_node)
 
 builder.set_entry_point("red")
@@ -129,7 +149,8 @@ builder.add_conditional_edges(
     _route_after_risk,
     {"policy": "policy", "red": "red"},
 )
-builder.add_edge("policy", "reset")
+builder.add_edge("policy", "patch")   # V2: policy → patch (was policy → reset)
+builder.add_edge("patch",  "reset")   # V2: new edge
 builder.add_edge("reset",  "red")
 
 arena = builder.compile()

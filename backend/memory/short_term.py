@@ -19,11 +19,12 @@ _memory: deque = deque(maxlen=MAX_MEMORY_SIZE)
 
 
 def append_step(
-    obs:     Dict[str, float],
-    attack:  Optional[Dict[str, Any]],
-    defense: Optional[Dict[str, Any]],
-    result:  str,
+    obs:             Dict[str, float],
+    attack:          Optional[Dict[str, Any]],
+    defense:         Optional[Dict[str, Any]],
+    result:          str,
     harvested_token: Optional[str] = None,
+    llm_decision:    Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Appends one step tuple to memory M.
@@ -34,6 +35,9 @@ def append_step(
         defense:         DefenseEvent dict (or None if no defense this step)
         result:          string summary e.g. "bruteforce:success" or "sqli:blocked"
         harvested_token: session token if the attack captured one, else None
+        llm_decision:    V2 — LLMDecision dict from Ollama strategy LLM, or None
+                         Stored so evaluation_agent can surface what the LLM
+                         reasoned when deciding each attack.
     """
     _memory.append({
         "obs":             obs,
@@ -42,6 +46,7 @@ def append_step(
         "result":          result,
         "defense_action":  defense.get("action", "none") if defense else "none",
         "harvested_token": harvested_token,
+        "llm_decision":    llm_decision,   # V2: Ollama rationale for this step
     })
 
 
