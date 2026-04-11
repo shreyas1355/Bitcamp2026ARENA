@@ -8,13 +8,12 @@ Responsibilities:
 - Exposes a REST /state endpoint for dashboard initial load
 - Starts the LangGraph arena loop in a background thread on startup
 
-DEVELOPER NOTE (Day 0):
-The arena loop is currently commented out. Uncomment it after Dev A
-wires the real LangGraph graph in Phase 2. The rest of this file is
-complete and should not need changes after Day 0.
+DEVELOPER NOTE:
+The vulnerable target app is mounted at /target with SecurityMiddleware
+(logging; enforcement phases in PROMPT). The arena loop is still commented
+out — uncomment after Phase 2 (langgraph_flow).
 """
 
-import asyncio
 import json
 import os
 import threading
@@ -128,15 +127,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Middleware ─────────────────────────────────────────────────────────────────
-# TODO (Dev B, Phase 1): Uncomment after middleware.py is implemented
-# from backend.target.middleware import SecurityMiddleware
-# app.add_middleware(SecurityMiddleware)
+# ── Middleware & target app ───────────────────────────────────────────────────
+from backend.target.middleware import SecurityMiddleware
+from backend.target.router import target_router
 
-# ── Target router ─────────────────────────────────────────────────────────────
-# TODO (Dev B, Phase 1): Uncomment after router.py is implemented
-# from backend.target.router import target_router
-# app.include_router(target_router, prefix="/target", tags=["target"])
+app.add_middleware(SecurityMiddleware)
+app.include_router(target_router, prefix="/target", tags=["target"])
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
