@@ -1,0 +1,153 @@
+"""
+SystemState — the single source of truth passed through every LangGraph node.
+
+RULES FOR ALL DEVELOPERS:
+- Never edit this file without updating PROMPT.md and telling the team.
+- Every node receives this state and returns ONLY the fields it changed.
+- Never return the full state from a node — return a dict of changed fields only.
+- All list fields use List[...] not list[...] for Python 3.10 compatibility.
+"""
+
+from typing import TypedDict, List, Dict, Any, Optional
+
+
+class AttackEvent(TypedDict):
+    """Produced by red team agents. One per step."""
+    type: str        # "recon" | "bruteforce" | "sqli" | "idor" | "path_traversal" | "auth_bypass"
+    target: str      # endpoint path e.g. "/login"
+    payload: str     # sanitized string representation of payload used
+    result: str      # "success" | "blocked" | "failed" | "rate_limited"
+    evidence: str    # what the response was: status code + body snippet
+    cwe: str         # e.g. "CWE-89" or "" if not applicable
+    severity: str    # "info" | "low" | "medium" | "high" | "critical"
+    timestamp: float
+
+
+class DefenseEvent(TypedDict):
+    """Produced by blue team responder. One per step (action="none" if nothing done)."""
+    action: str           # "block_ip" | "rate_limit" | "patch_endpoint" | "alert_only" | "none"
+    trigger_rule: str     # rule ID e.g. "RULE_SQLI_SIGNATURE" or "" if action="none"
+    target_ip: str        # IP acted on, or "" if endpoint-level action
+    target_endpoint: str  # endpoint acted on, or "" if IP-level action
+    timestamp: float
+
+
+class Finding(TypedDict):
+    """Produced by anomaly_detector. One per triggered rule per step."""
+    rule_id: str
+    severity: str          # "low" | "medium" | "high" | "critical"
+    source_ip: str
+    target_endpoint: str
+    evidence: Dict[str, Any]
+    recommended_action: str  # "block_ip" | "rate_limit" | "patch_endpoint" | "alert_only"
+
+
+class SupervisorReport(TypedDict):
+    """Produced by policy_agent (Gemini). One per episode."""
+    risk_score: float
+    vulnerabilities: List[Dict[str, Any]]  # [{name, severity, endpoint, cwe, evidence}]
+    mitigations: List[str]
+    next_episode_strategy: str
+    episode_summary: str
+    token_count: int
+
+
+class SystemState(TypedDict):
+    # ── Episode and step tracking ──────────────────────────────────────────────
+    episode: int
+    step: int
+    max_steps: int
+
+    # ── Current step events ────────────────────────────────────────────────────
+    last_attack: Optional[AttackEvent]
+    last_defense: Optional[DefenseEvent]
+    current_findings: List[Finding]
+
+    # ── Memory layers: L = <M, E, K> ──────────────────────────────────────────
+    # M — short-term: last MAX_MEMORY_SIZE step tuples (obs, attack, defense, result)
+    # E — episode pool: post-episode strategy summaries (persisted to JSON)
+    # K — knowledge base: static CVE rules (loaded at startup, read-only)
+    short_term_memory: List[Dict[str, Any]]
+    episode_pool: List[str]
+    knowledge_base: List[Dict[str, Any]]
+
+    # ── Risk tracking ──────────────────────────────────────────────────────────
+    risk_score: float           # 0.0 to 1.0, updated each step by risk_engine
+    risk_history: List[float]   # one entry per step this episode
+
+    # Human-readable confirmed findings accumulated this episode
+    vulnerabilities_found: List[str]
+
+    # ── Defense state (enforced by FastAPI middleware) ─────────────────────────
+    blocked_ips: List[str]
+    rate_limited_endpoints: Dict[str, int]   # {endpoint_path: req_per_min_limit}
+    active_mitigations: Dict[str, bool]      # feature flags read by target endpoints
+
+    # ── Observation ────────────────────────────────────────────────────────────
+    # raw_observation: full attribute dict from log_monitor (all float values)
+    # pruned_observation: after SEMA structural entropy pruning — sent to Gemini
+    raw_observation: Dict[str, float]
+    pruned_observation: Dict[str, float]
+
+    # ── Evaluation agent output ────────────────────────────────────────────────
+    retrieved_similar_step: Optional[Dict[str, Any]]
+    prior_recommendation: str
+
+    # ── Supervisor output ──────────────────────────────────────────────────────
+    supervisor_report: Optional[SupervisorReport]
+
+    # ── Routing ────────────────────────────────────────────────────────────────
+    supervisor_trigger: bool  # set True by risk_node when step >= max_steps
+
+
+def get_initial_state(
+    knowledge_base: List[Dict[str, Any]],
+    episode_pool: List[str],
+    max_steps: int,
+) -> SystemState:
+    """
+    Returns a fully initialized SystemState with safe defaults.
+    Called once at startup in main.py lifespan.
+
+    Args:
+        knowledge_base: loaded from data/knowledge_base.json
+        episode_pool:   loaded from data/episode_pool.json (or [] if not exists)
+        max_steps:      from config.MAX_STEPS
+    """
+    return SystemState(
+        episode=1,
+        step=0,
+        max_steps=max_steps,
+
+        last_attack=None,
+        last_defense=None,
+        current_findings=[],
+
+        short_term_memory=[],
+        episode_pool=episode_pool,
+        knowledge_base=knowledge_base,
+
+        risk_score=0.0,
+        risk_history=[],
+        vulnerabilities_found=[],
+
+        blocked_ips=[],
+        rate_limited_endpoints={},
+        active_mitigations={
+            "rate_limit_login":    False,
+            "idor_check_enabled":  False,
+            "proper_admin_auth":   False,
+            "proper_auth":         False,
+            "csrf_protection":     False,
+            "path_sanitization":   False,
+        },
+
+        raw_observation={},
+        pruned_observation={},
+
+        retrieved_similar_step=None,
+        prior_recommendation="none",
+
+        supervisor_report=None,
+        supervisor_trigger=False,
+    )
