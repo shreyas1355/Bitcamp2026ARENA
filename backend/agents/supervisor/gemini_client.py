@@ -1,14 +1,11 @@
 """
-gemini_client.py — Gemini API wrapper.
-
-TODO (Dev A, Phase 5): Implement this file.
-
-Responsibilities:
-- configure_gemini(api_key): called once at startup
-- call_gemini(system_prompt, user_prompt): wraps genai call with retry + backoff
+Gemini API wrapper — ONLY call site for generative AI outside tests.
 """
 
+from __future__ import annotations
+
 import time
+
 from backend.config import GEMINI_MODEL, GEMINI_MAX_RETRIES, GEMINI_RETRY_DELAY_S
 
 _configured = False
@@ -18,6 +15,7 @@ def configure_gemini(api_key: str) -> None:
     global _configured
     try:
         import google.generativeai as genai
+
         genai.configure(api_key=api_key)
         _configured = True
         print(f"[GEMINI] Configured with model {GEMINI_MODEL}")
@@ -25,18 +23,51 @@ def configure_gemini(api_key: str) -> None:
         print(f"[GEMINI] Configuration failed: {e}")
 
 
+def is_configured() -> bool:
+    return _configured
+
+
 def call_gemini(system_prompt: str, user_prompt: str) -> str:
     """
-    TODO (Dev A): Implement with retry logic.
-
-    Calls Gemini 1.5 Flash with the given prompts.
-    Returns response text as string.
-    Retries up to GEMINI_MAX_RETRIES times on ResourceExhausted (429).
-    Uses exponential backoff starting at GEMINI_RETRY_DELAY_S seconds.
-    Raises RuntimeError after all retries exhausted.
+    Calls Gemini with retries on quota / resource exhaustion.
+    Exponential backoff from GEMINI_RETRY_DELAY_S.
     """
     if not _configured:
         raise RuntimeError("Gemini not configured. Call configure_gemini() first.")
 
-    # STUB — replace with real implementation
-    return '{"risk_score": 0.5, "vulnerabilities": [], "mitigations": ["STUB — implement gemini_client.py"], "next_episode_strategy": "Continue testing", "episode_summary": "Stub episode summary.", "token_count": 0}'
+    import google.generativeai as genai
+
+    try:
+        from google.api_core import exceptions as gexc
+    except ImportError:  # pragma: no cover
+        gexc = None
+
+    delay = GEMINI_RETRY_DELAY_S
+    last_err: Exception | None = None
+
+    for attempt in range(GEMINI_MAX_RETRIES + 1):
+        try:
+            model = genai.GenerativeModel(
+                GEMINI_MODEL,
+                system_instruction=system_prompt,
+            )
+            response = model.generate_content(user_prompt)
+            text = getattr(response, "text", None)
+            if text:
+                return text
+            # Blocked or empty — surface as error for retry/fallback
+            raise RuntimeError("Gemini returned empty response")
+        except Exception as e:
+            last_err = e
+            retryable = False
+            if gexc and isinstance(e, gexc.ResourceExhausted):
+                retryable = True
+            elif "Resource exhausted" in str(e) or "429" in str(e):
+                retryable = True
+            if not retryable or attempt >= GEMINI_MAX_RETRIES:
+                break
+            print(f"[GEMINI] retry {attempt + 1}/{GEMINI_MAX_RETRIES} after {delay:.1f}s: {e}")
+            time.sleep(delay)
+            delay *= 2.0
+
+    raise RuntimeError(f"Gemini call failed after retries: {last_err}")

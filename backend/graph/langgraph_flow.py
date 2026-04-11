@@ -7,10 +7,9 @@ Graph topology:
                                             └──────────────┘
                                          (loop when step < max_steps)
 
-DEVELOPER NOTE (Dev A):
-Stub nodes are provided for all agents. Replace each stub with the real
-import as the corresponding agent file is implemented. The graph topology
-itself must not change.
+DEVELOPER NOTE:
+Red and blue still use stubs until Dev B/C land. Prune, evaluation, risk,
+policy, and reset are wired to real modules. Graph topology must not change.
 
 Stub nodes return minimal valid dicts that satisfy the SystemState schema
 so the graph can run end-to-end before real agents exist.
@@ -18,7 +17,7 @@ so the graph can run end-to-end before real agents exist.
 
 import time
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph
 
 from backend.state import SystemState
 from backend.config import STEP_DELAY_S
@@ -70,39 +69,14 @@ def _stub_blue_node(state: SystemState) -> dict:
     }
 
 
-def _stub_prune_node(state: SystemState) -> dict:
-    """
-    Placeholder until Dev A implements backend/agents/supervisor/pruner.py.
-    Passes raw_observation through unchanged.
-    """
-    return {"pruned_observation": state.get("raw_observation", {})}
-
-
-def _stub_evaluation_node(state: SystemState) -> dict:
-    """
-    Placeholder until Dev A implements backend/agents/supervisor/evaluation_agent.py.
-    """
-    return {
-        "retrieved_similar_step": None,
-        "prior_recommendation":   "none",
-    }
-
-
 # ── Real node imports (uncomment as each agent is implemented) ────────────────
 
-# TODO (Dev B): Replace _stub_red_node
-# from backend.agents.red.strategy import red_node as _real_red_node
+# TODO (Dev B): Replace _stub_red_node with backend.agents.red.strategy.red_node
+# TODO (Dev C): Replace _stub_blue_node with backend.agents.blue.log_monitor.blue_node
 
-# TODO (Dev C): Replace _stub_blue_node
-# from backend.agents.blue.log_monitor import blue_node as _real_blue_node
+from backend.agents.supervisor.pruner import prune_node as _real_prune_node
+from backend.agents.supervisor.evaluation_agent import evaluation_node as _real_evaluation_node
 
-# TODO (Dev A): Replace _stub_prune_node
-# from backend.agents.supervisor.pruner import prune_node as _real_prune_node
-
-# TODO (Dev A): Replace _stub_evaluation_node
-# from backend.agents.supervisor.evaluation_agent import evaluation_node as _real_evaluation_node
-
-# These are already implemented and imported directly:
 from backend.scoring.risk_engine import risk_node
 from backend.agents.supervisor.policy_agent import policy_node
 from backend.graph.reset import reset_node
@@ -110,10 +84,10 @@ from backend.graph.reset import reset_node
 
 # ── Active node assignments (swap stubs for reals here) ───────────────────────
 
-red_node        = _stub_red_node        # swap: _real_red_node
-blue_node       = _stub_blue_node       # swap: _real_blue_node
-prune_node      = _stub_prune_node      # swap: _real_prune_node
-evaluation_node = _stub_evaluation_node # swap: _real_evaluation_node
+red_node        = _stub_red_node
+blue_node       = _stub_blue_node
+prune_node      = _real_prune_node
+evaluation_node = _real_evaluation_node
 
 
 # ── Step delay wrapper ────────────────────────────────────────────────────────
