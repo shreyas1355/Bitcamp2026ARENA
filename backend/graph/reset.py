@@ -19,13 +19,18 @@ def reset_node(state: SystemState) -> dict:
     Fields that PERSIST across episodes (not reset):
     - episode_pool (E): grows across episodes
     - knowledge_base (K): read-only; extended at runtime via ioc_exports ingestion
-    - blocked_ips: carry forward (attackers stay blocked)
     - rate_limited_endpoints: carry forward
     - active_mitigations: carry forward (patched stays patched)
     - supervisor_report: carry forward (dashboard keeps showing last report)
     - behavioral_fingerprints: V2 — fingerprints of blocked attackers, enables
       cross-episode IP-rotation detection (MUST NOT be cleared)
     - patch_records: V2 — accumulates verified patches across all episodes
+
+    Fields reset for simulation continuity:
+    - blocked_ips: CLEARED on reset. The red team always originates from
+      127.0.0.1 (httpx from localhost), so a carried-forward block permanently
+      defeats the red team — every step floods with 403s and risk pins at 1.000.
+      Fingerprints persist to detect re-entry; the IP block itself is episode-scoped.
 
     Fields that RESET for each new episode:
     - step → 0
@@ -72,6 +77,9 @@ def reset_node(state: SystemState) -> dict:
         "llm_decision":          None,
         "current_attack_layer":  1,
         "ioc_exports":           [],
+        # Cleared so the red team (always 127.0.0.1) can operate in the new
+        # episode. Behavioral fingerprints still carry forward for detection.
+        "blocked_ips":           [],
         # NOTE: behavioral_fingerprints and patch_records are NOT in this dict.
         # LangGraph only updates fields present in the return dict, so those
         # two fields carry forward automatically (Rule 14 in PROMPT_V2.md).

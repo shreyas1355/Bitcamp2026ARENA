@@ -44,8 +44,15 @@ def _compute_risk(state: SystemState) -> float:
     # Decay
     score = old_score * RISK_DECAY
 
-    # Add weight for each finding this step
+    # Add weight for each finding this step.
+    # Skip findings whose source IP is already blocked — those threats are handled;
+    # re-counting them every step while they remain in the 60-second log window
+    # would prevent risk from ever decaying after a successful block.
+    blocked_set = set(state.get("blocked_ips") or [])
     for finding in state.get("current_findings", []):
+        src_ip = finding.get("source_ip") or ""
+        if src_ip and src_ip in blocked_set:
+            continue
         severity = finding.get("severity", "info")
         score += RISK_SEVERITY_WEIGHTS.get(severity, 0.0)
 

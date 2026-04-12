@@ -133,9 +133,14 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
         return _defense_event("block_ip", rule_id, src_ip, target_ep, ts)
 
     if action == "block_ip":
-        if src_ip and src_ip not in state["blocked_ips"]:
+        already_blocked = src_ip in state["blocked_ips"] if src_ip else True
+        if src_ip and not already_blocked:
             state["blocked_ips"].append(src_ip)
         _append_ioc_from_evidence(state, evidence)
+        if already_blocked:
+            # IP already handled — don't re-emit a block event; avoids misleading
+            # the dashboard and prevents spurious RISK_MITIGATION_DISCOUNT churn.
+            return None
         return _defense_event("block_ip", rule_id, src_ip, target_ep, ts)
 
     if action == "export_ioc":

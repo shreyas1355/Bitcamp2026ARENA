@@ -11,7 +11,7 @@ import json
 import random
 from typing import Any, Dict
 
-from backend.llm.ollama_client import call_ollama_json, check_ollama_available
+from backend.llm.ollama_client import call_ollama_json
 from backend.state import AttackEvent, LLMDecision, SystemState
 
 # ── Layer ladder (hint text for the LLM) ─────────────────────────────────────
@@ -56,7 +56,7 @@ TECHNIQUE_TO_EXECUTOR: Dict[str, str] = {
 }
 
 STRATEGY_SYSTEM_CONTEXT = """You are an autonomous penetration tester targeting a web application.
-Your goal is to find and exploit security vulnerabilities.
+Your goal is to find and exploit security vulnerabilities to their maximum impact.
 
 You have access to these attack capabilities:
 - Authentication attacks: bruteforce, credential_stuffing, timing_enumeration
@@ -66,9 +66,15 @@ You have access to these attack capabilities:
 - Evasion techniques: sqli_double_encoded, timing_mimic, header_injection, ua_spoofing
 - Reconnaissance: recon, surface_mapping
 
-Be creative. Look for attack surfaces not in obvious places.
-Consider: query parameters, request headers, HTTP methods, body fields the schema exposes.
-If an endpoint has been patched, do not waste steps retrying the same technique there."""
+EXPLOITATION PRIORITY RULES:
+1. If a previous step showed "success" on an endpoint, DEEPEN that exploit before moving on.
+   - sqli→success: escalate to sqli_union or sqli_blind to exfiltrate data
+   - bruteforce→success: use the harvested credentials for privilege_escalation or idor
+   - path_traversal→success: read /etc/shadow, /proc/self/environ, or config files next
+   - auth_bypass→success: immediately probe admin-only endpoints (idor, mass_assignment)
+2. Only move to a new surface after confirmed successes have been fully escalated.
+3. If you are blocked (HTTP 403), switch technique and endpoint immediately — do not retry.
+4. If an endpoint has been patched (in ACTIVE MITIGATIONS), never retry it with the same technique."""
 
 DECISION_SCHEMA = """{
   "technique": "<technique_name from the list above>",
@@ -115,10 +121,24 @@ def build_strategy_prompt(state: SystemState) -> str:
     if episode_pool:
         supervisor_hint = f"\nSupervisor recommendation: {episode_pool[-1][:200]}"
 
+    # Surfaces with confirmed successes this episode — shown separately so the LLM
+    # prioritises deepening exploitation over breadth-first surface exploration.
+    all_memory = state.get("short_term_memory") or []
+    confirmed_successes = []
+    for m in all_memory:
+        a = m.get("attack") or {}
+        if a.get("result") == "success":
+            entry = f"{a.get('type','?')} on {a.get('target','?')}"
+            if entry not in confirmed_successes:
+                confirmed_successes.append(entry)
+
     return f"""{STRATEGY_SYSTEM_CONTEXT}
 
 CURRENT SECURITY TELEMETRY (high-signal attributes only, pre-filtered by structural entropy):
 {json.dumps(obs, indent=2)}
+
+CONFIRMED SUCCESSES THIS EPISODE (deepen these — do not abandon them):
+{chr(10).join(f"  [SUCCESS] {s}" for s in confirmed_successes) if confirmed_successes else "  None yet"}
 
 RECENT HISTORY (last 5 steps):
 {chr(10).join(memory_lines) if memory_lines else "  No history yet — first steps of episode."}
@@ -129,10 +149,11 @@ ACTIVE MITIGATIONS (patched — do not retry these):
 CURRENT ATTACK LAYER: {layer} — {ATTACK_LAYERS.get(layer, "unknown")}
 {supervisor_hint}
 
-Decide your next attack. Choose a technique that is:
-1. Not already blocked by active mitigations
-2. Contextually appropriate given the telemetry above
-3. Ideally from a surface or endpoint not yet fully explored"""
+Decide your next attack. Prioritise:
+1. Deepening a CONFIRMED SUCCESS from the list above (escalate the same endpoint/technique)
+2. If all confirmed successes are fully exploited, pick the next unexplored surface
+3. Never retry a technique blocked by ACTIVE MITIGATIONS
+4. Keep all header and payload string values under 60 characters"""
 
 
 def _normalize_decision(raw: Dict[str, Any]) -> LLMDecision:
@@ -188,14 +209,10 @@ def red_node(state: SystemState) -> dict:
     """
     LangGraph node: Ollama JSON decision → executor → last_attack + llm_decision.
     """
-    ollama_ok = check_ollama_available()
     try:
-        if ollama_ok:
-            prompt = build_strategy_prompt(state)
-            decision_dict = call_ollama_json(prompt, DECISION_SCHEMA)
-            llm_decision = _normalize_decision(decision_dict)
-        else:
-            raise RuntimeError("Ollama not available")
+        prompt = build_strategy_prompt(state)
+        decision_dict = call_ollama_json(prompt, DECISION_SCHEMA)
+        llm_decision = _normalize_decision(decision_dict)
     except Exception as e:
         print(f"[RED] Ollama failed: {e}. Using fallback.")
         llm_decision = _fallback_decision(state)

@@ -122,16 +122,19 @@ async def lifespan(app: FastAPI):
         print("[WARN] GEMINI_API_KEY not set — supervisor will not function")
 
     # V2: Check Ollama availability (red team LLM — runs locally, zero API cost)
+    # Note: cold-start (first model load) can exceed the 5s ping timeout.
+    # A False result here does not mean Ollama is broken — inference still
+    # attempts every step and falls back gracefully only on real failure.
     try:
         from backend.llm.ollama_client import check_ollama_available
+        from backend.config import OLLAMA_MODEL
         if check_ollama_available():
-            from backend.config import OLLAMA_MODEL
             print(f"[STARTUP] Ollama available — model: {OLLAMA_MODEL}")
         else:
-            print("[WARN] Ollama not available — red team will use rule-based fallback")
-            print("[WARN] To enable: `ollama serve` then `ollama pull llama3`")
+            print(f"[STARTUP] Ollama ping timed out (model may still be loading) — model: {OLLAMA_MODEL}")
+            print("[STARTUP] Red team will attempt Ollama each step; falls back to rule-based on failure")
     except ImportError:
-        print("[WARN] ollama_client not yet implemented — red team uses fallback")
+        print("[WARN] ollama package not installed — run: pip install ollama==0.2.1")
 
     # Start arena loop in background thread
     arena_thread = threading.Thread(target=_run_arena, daemon=True, name="arena-loop")
@@ -201,6 +204,8 @@ async def get_state():
         "active_mitigations":    SYSTEM_STATE["active_mitigations"],
         "vulnerabilities_found": SYSTEM_STATE["vulnerabilities_found"],
         "supervisor_report":     SYSTEM_STATE["supervisor_report"],
+        "last_attack":           SYSTEM_STATE.get("last_attack"),
+        "last_defense":          SYSTEM_STATE.get("last_defense"),
         # V2 additions
         "current_attack_layer":  SYSTEM_STATE.get("current_attack_layer", 1),
         "patch_records":         SYSTEM_STATE.get("patch_records", []),

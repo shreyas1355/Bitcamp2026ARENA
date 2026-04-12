@@ -1,22 +1,6 @@
 [
-  "Episode 6: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 7: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 8: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 9: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 10: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 11: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 12: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 13: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 14: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 15: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 16: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 17: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 18: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 19: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 20: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 21: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 22: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 23: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 24: GEMINI_API_KEY not set. Final risk score 1.00.",
-  "Episode 25: GEMINI_API_KEY not set. Final risk score 1.00."
+  "Episode 1: Gemini call failed after retries: 404 models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and thei. Final risk score 1.00.",
+  "The episode focused on SQL injection attempts against the login endpoint, which were detected and mitigated by rate limiting. While no direct data exfiltration occurred, the persistent attempts indicate a vulnerability in input validation for the SQL queries.",
+  "This episode saw persistent SQL injection attempts against the /login endpoint, which were detected and mitigated by rate limiting defenses. Although no successful exploitation occurred, the presence of critical SQLi patterns confirms a vulnerability in the application's input handling for SQL queries.",
+  "The episode was characterized by persistent SQL injection attempts against the /login endpoint, which were identified and mitigated by rate limiting. Although the critical SQLi vulnerability remains unexploited due to defense mechanisms, the repeated attempts highlight a significant security flaw in the application's input handling."
 ]

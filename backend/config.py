@@ -62,7 +62,7 @@ RATE_LIMIT_LOGIN_STUFFING  = 3    # req/min — credential stuffing finding
 RATE_LIMIT_FLOOD           = 20   # req/min — endpoint flood finding
 
 # ── Gemini ─────────────────────────────────────────────────────────────────────
-GEMINI_MODEL         = "gemini-1.5-flash"
+GEMINI_MODEL         = "gemini-2.5-flash-lite"
 GEMINI_MAX_RETRIES   = 3
 GEMINI_RETRY_DELAY_S = 5.0
 
@@ -79,6 +79,9 @@ OLLAMA_MODEL          = os.environ.get("OLLAMA_MODEL", "llama3")
 OLLAMA_FALLBACK_MODEL = "mistral"   # tried if llama3 is not available
 OLLAMA_TIMEOUT_S      = 10.0        # per-step timeout; if exceeded, use fallback decision
 OLLAMA_PING_TIMEOUT_S = 5.0         # startup health check for check_ollama_available()
+# Max tokens per chat completion (JSON decisions need room for rationale + fields).
+# Increase if you see truncated JSON mid-string; set via env OLLAMA_NUM_PREDICT.
+OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", "1024"))
 
 # ── V2: Attack layer escalation ────────────────────────────────────────────────
 # If a layer's success rate drops below this, LLM is hinted to escalate.

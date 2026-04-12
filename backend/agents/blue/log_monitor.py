@@ -206,7 +206,7 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
         "failed_logins": float(failed_logins),
         "successful_logins": float(successful_logins),
         "unique_usernames_tried": float(len(usernames)),
-        "login_success_rate": successful_logins / (failed_logins + successful_logins) if (failed_logins + successful_logins) > 0 else 1.0,
+        "login_success_rate": successful_logins / (failed_logins + successful_logins) if (failed_logins + successful_logins) > 0 else 0.0,
         "sqli_patterns_detected": sqli_count,
         "path_traversal_detected": path_trav_count,
         "large_payload_count": large_payload,

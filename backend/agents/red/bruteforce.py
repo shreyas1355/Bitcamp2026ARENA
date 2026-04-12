@@ -166,8 +166,20 @@ def _try_login(url: str, username: str, password: str) -> Optional[AttackEvent]:
             severity="high",
             timestamp=time.time(),
         )
-    if r.status_code in (401, 403):
-        return None  # try next credential
+    if r.status_code == 403:
+        # IP is blocked — continuing the loop would just flood with 403s
+        return AttackEvent(
+            type="bruteforce",
+            target="/login",
+            payload=f"{username}:{password}",
+            result="blocked",
+            evidence=f"HTTP 403 {body}",
+            cwe="CWE-307",
+            severity="low",
+            timestamp=time.time(),
+        )
+    if r.status_code == 401:
+        return None  # wrong credentials — try next pair
 
     return AttackEvent(
         type="bruteforce",

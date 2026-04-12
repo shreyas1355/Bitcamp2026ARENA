@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - exercised when ollama not installed
 from backend.config import (
     OLLAMA_FALLBACK_MODEL,
     OLLAMA_MODEL,
+    OLLAMA_NUM_PREDICT,
     OLLAMA_PING_TIMEOUT_S,
     OLLAMA_TIMEOUT_S,
 )
@@ -75,11 +76,13 @@ def call_ollama(prompt: str, model: str | None = None) -> str:
         )
 
     target_model = model or OLLAMA_MODEL
+    chat_options = {"num_predict": OLLAMA_NUM_PREDICT}
 
     def _chat() -> str:
         response = _ollama.chat(
             model=target_model,
             messages=[{"role": "user", "content": prompt}],
+            options=chat_options,
         )
         text = _chat_response_text(response)
         if not text and isinstance(response, Mapping):
@@ -213,7 +216,13 @@ def check_ollama_available() -> bool:
 
 def _parse_json(raw: str) -> dict[str, Any]:
     """
-    Strip markdown fences, then decode the first JSON object (balanced braces).
+    Strip markdown fences, then decode the first JSON object.
+
+    Strategy:
+    1. raw_decode — handles trailing text after the closing brace.
+    2. If that fails: extract the balanced-brace fragment, sanitize literal
+       control characters (\\n, \\r, \\t) inside string values (common llama3
+       output defect), then retry json.loads.
     """
     text = raw.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
@@ -224,11 +233,91 @@ def _parse_json(raw: str) -> dict[str, Any]:
     if start == -1:
         raise json.JSONDecodeError("No JSON object found", text, 0)
 
-    decoder = json.JSONDecoder()
-    obj, _ = decoder.raw_decode(text[start:])
-    if not isinstance(obj, dict):
-        raise ValueError("JSON root must be an object")
-    return obj
+    candidate = text[start:]
+
+    # Attempt 1: standard raw_decode (handles trailing text after object)
+    try:
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(candidate)
+        if isinstance(obj, dict):
+            return obj
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Attempt 2: extract balanced-brace fragment + sanitize control chars
+    end = _find_json_end(candidate)
+    if end != -1:
+        fragment = _sanitize_json_strings(candidate[: end + 1])
+        try:
+            obj = json.loads(fragment)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    raise json.JSONDecodeError("All JSON repair attempts failed", candidate, 0)
+
+
+def _find_json_end(text: str) -> int:
+    """Return the index of the closing } for the outermost JSON object, or -1."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\" and in_string:
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _sanitize_json_strings(text: str) -> str:
+    """
+    Escape raw control characters (\\n \\r \\t) inside JSON string values.
+    llama3 sometimes emits literal newlines inside a string field; json.loads
+    rejects those but they can be repaired by turning them into \\n sequences.
+    """
+    result: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in text:
+        if escaped:
+            result.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and in_string:
+            result.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string:
+            if ch == "\n":
+                result.append("\\n")
+                continue
+            if ch == "\r":
+                result.append("\\r")
+                continue
+            if ch == "\t":
+                result.append("\\t")
+                continue
+        result.append(ch)
+    return "".join(result)
 
 
 def _safe_default_decision() -> dict[str, Any]:

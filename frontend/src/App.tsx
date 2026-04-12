@@ -1,120 +1,80 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useArenaSocket } from './hooks/useArenaSocket'
+import { ArenaHeader } from './components/ArenaHeader'
+import { RiskGauge } from './components/RiskGauge'
+import { AttackPanel } from './components/AttackPanel'
+import { DefensePanel } from './components/DefensePanel'
+import { LLMDecisionPanel } from './components/LLMDecisionPanel'
+import { MitigationsPanel } from './components/MitigationsPanel'
+import { VulnerabilitiesPanel } from './components/VulnerabilitiesPanel'
+import { ReportPanel } from './components/ReportPanel'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const {
+    snapshot,
+    loadError,
+    wsConnected,
+    wsError,
+    episodeReport,
+    lastPatchSummary,
+  } = useArenaSocket()
+
+  if (loadError && !snapshot) {
+    return (
+      <div className="min-h-screen bg-arena-bg p-6 text-arena-text">
+        <p className="text-arena-red">Failed to load arena: {loadError}</p>
+        <p className="mt-2 text-sm text-arena-muted">
+          Is the API running at {import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000'}?
+        </p>
+      </div>
+    )
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-arena-bg text-arena-muted">
+        Loading arena state…
+      </div>
+    )
+  }
+
+  const s = snapshot
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="min-h-screen bg-arena-bg text-arena-text">
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        <ArenaHeader
+          episode={s.episode}
+          step={s.step}
+          attackLayer={s.current_attack_layer ?? 1}
+          wsConnected={wsConnected}
+        />
 
-      <div className="ticks"></div>
+        {wsError && (
+          <p className="mt-2 text-sm text-arena-orange">{wsError}</p>
+        )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <RiskGauge riskScore={s.risk_score} riskHistory={s.risk_history ?? []} />
+          <MitigationsPanel
+            mitigations={s.active_mitigations ?? {}}
+            blockedIps={s.blocked_ips ?? []}
+          />
+          <AttackPanel attack={s.last_attack} />
+          <DefensePanel defense={s.last_defense} />
+          <LLMDecisionPanel decision={s.llm_decision} />
+          <VulnerabilitiesPanel items={s.vulnerabilities_found ?? []} />
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        <div className="mt-6">
+          <ReportPanel
+            supervisorReport={s.supervisor_report}
+            episodeReport={episodeReport}
+            patchRecords={s.patch_records ?? []}
+            lastPatchSummary={lastPatchSummary}
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 

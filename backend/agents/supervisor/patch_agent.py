@@ -213,7 +213,13 @@ def _apply_patch(endpoint: str, patch_code: str) -> bool:
     The arena loop must never crash due to a failed patch.
     """
     try:
-        from backend.target.router import target_router, _get_mitigations, _SQLI_PATTERN
+        from backend.target.router import (
+            target_router,
+            _get_mitigations,
+            _SQLI_PATTERN,
+            LoginRequest,
+            TransferRequest,
+        )
         from backend.target.vuln_store import (
             USERS, DATA_RECORDS, SESSIONS,
             create_session, get_session_user, validate_user, record_transfer,
@@ -228,6 +234,11 @@ def _apply_patch(endpoint: str, patch_code: str) -> bool:
         # Controlled namespace — only what target endpoint functions need
         namespace: dict = {
             "__builtins__":     __builtins__,
+            # Router + request models — Gemini often emits @target_router.post(...)
+            # before async def; without target_router, exec() raises NameError on line 1.
+            "target_router":    target_router,
+            "LoginRequest":     LoginRequest,
+            "TransferRequest":  TransferRequest,
             "JSONResponse":     JSONResponse,
             "Request":          Request,
             "Header":           Header,

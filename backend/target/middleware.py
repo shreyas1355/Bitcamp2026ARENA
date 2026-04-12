@@ -51,6 +51,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
+        user_agent = request.headers.get("user-agent", "")
         start_time = time.time()
         deep_ips = _deep_logging_ips_list()
         is_deep = client_ip in deep_ips
@@ -70,6 +71,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     query_params=dict(request.query_params),
                     blocked=True,
                     deep_logging=is_deep,
+                    user_agent=user_agent,
                 )
                 return Response("Forbidden", status_code=403)
         except ImportError:
@@ -101,6 +103,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                         query_params=dict(request.query_params),
                         rate_limited=True,
                         deep_logging=is_deep,
+                        user_agent=user_agent,
                     )
                     return Response(
                         "Too Many Requests",
@@ -138,6 +141,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             body_hash=body_hash,
             deep_logging=is_deep,
             payload_preview=payload_preview,
+            user_agent=user_agent,
         )
 
         return response
@@ -155,11 +159,13 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         body_hash: str = "",
         deep_logging: bool = False,
         payload_preview: str = "",
+        user_agent: str = "",
     ) -> None:
         """
         Appends one JSON line to LOG_FILE.
 
         When deep_logging is True, entry includes payload_preview (body) when read.
+        user_agent is always logged — required by behavioral fingerprinting in anomaly_detector.
         """
         entry = {
             "timestamp":             time.time(),
@@ -172,6 +178,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             "blocked_by_middleware": blocked,
             "rate_limited":          rate_limited,
             "body_hash":             body_hash,
+            "user_agent":            user_agent,
         }
         if deep_logging:
             entry["deep_logging"] = True
