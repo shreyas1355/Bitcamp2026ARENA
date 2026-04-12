@@ -224,7 +224,10 @@ def policy_node(state: SystemState) -> Dict[str, Any]:
         # Persist the runtime additions to a separate file (never overwrite base KB)
         _persist_runtime_kb(updated_kb)
 
-    print(f"[SUPERVISOR] Episode {ep} complete. Risk: {report['risk_score']:.3f}")
+    print(
+        f"[SUPERVISOR] Episode {ep} complete. "
+        f"Gemini-estimated risk (from episode telemetry/logs): {report['risk_score']:.3f}"
+    )
     return {
         "supervisor_report": report,
         "episode_pool":      updated_pool,

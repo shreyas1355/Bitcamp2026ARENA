@@ -154,8 +154,8 @@ def patch_node(state: SystemState) -> dict:
 
 def _patch_one_vulnerability(vuln: dict, state: SystemState) -> PatchRecord:
     """Runs the full generate → apply → verify pipeline for one vulnerability."""
-    endpoint      = vuln.get("endpoint", "")
-    exploit_payload = vuln.get("exploit_payload", "")
+    endpoint      = vuln.get("endpoint") or ""  # guard: Gemini may return null
+    exploit_payload = vuln.get("exploit_payload") or ""
     cwe           = vuln.get("cwe", "")
     vuln_name     = vuln.get("name", "Unknown vulnerability")
 
@@ -443,6 +443,8 @@ def _verify_patch(endpoint: str, exploit_payload: str, vuln: dict) -> tuple[bool
 
 def _normalize_path(endpoint: str) -> str:
     """Strips /target prefix and ensures leading slash."""
+    if not endpoint:
+        return "/"
     path = endpoint.replace("/target", "") if endpoint.startswith("/target") else endpoint
     return path if path.startswith("/") else f"/{path}"
 
