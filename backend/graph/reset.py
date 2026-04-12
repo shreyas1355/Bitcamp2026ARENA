@@ -33,6 +33,8 @@ def reset_node(state: SystemState) -> dict:
       Fingerprints persist to detect re-entry; the IP block itself is episode-scoped.
 
     Fields that RESET for each new episode:
+    - episode_start_time → now (blue_node / read_recent_logs use this so logs before
+      this instant do not bleed into the new episode's anomaly window)
     - step → 0
     - short_term_memory → []
     - risk_history → []

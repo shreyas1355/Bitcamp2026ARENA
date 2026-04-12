@@ -66,22 +66,22 @@ export function SurfaceMapPanel({ timeline, liveEpisode, viewEpisode }: Props) {
   const edges = useMemo(() => {
     const out: Edge[] = []
     for (const f of visible) {
-      if (f.last_attack) {
-        const tgt = normalizeTargetEndpoint(
-          f.last_attack.target || f.llm_decision?.target_endpoint || '',
-        )
-        if (tgt && ENDPOINT_POS[tgt]) {
-          const p = ENDPOINT_POS[tgt]!
-          const bend = 24 + (f.step % 5) * 6
-          const ok = f.last_attack.result === 'success'
-          out.push({
-            key: `a-${f.episode}-${f.step}`,
-            kind: 'attack',
-            d: curvePath(RED.x, RED.y, p.x, p.y, bend),
-            stroke: ok ? '#15803d' : '#b91c1c',
-            step: f.step,
-          })
-        }
+      const atk = f.last_attack
+      if (!atk) continue
+      const tgt = normalizeTargetEndpoint(
+        atk.target ?? f.llm_decision?.target_endpoint ?? '',
+      )
+      if (tgt && ENDPOINT_POS[tgt]) {
+        const p = ENDPOINT_POS[tgt]!
+        const bend = 24 + (f.step % 5) * 6
+        const ok = atk.result === 'success'
+        out.push({
+          key: `a-${f.episode}-${f.step}`,
+          kind: 'attack',
+          d: curvePath(RED.x, RED.y, p.x, p.y, bend),
+          stroke: ok ? '#15803d' : '#b91c1c',
+          step: f.step,
+        })
       }
       const d = f.last_defense
       if (d && d.action && d.action !== 'none') {
@@ -125,7 +125,7 @@ export function SurfaceMapPanel({ timeline, liveEpisode, viewEpisode }: Props) {
     const touched = new Set<string>()
     for (const f of visible) {
       const t = normalizeTargetEndpoint(
-        f.last_attack?.target || f.llm_decision?.target_endpoint || '',
+        f.last_attack?.target ?? f.llm_decision?.target_endpoint ?? '',
       )
       if (t) touched.add(t)
     }
@@ -278,9 +278,9 @@ export function SurfaceMapPanel({ timeline, liveEpisode, viewEpisode }: Props) {
                       className={`px-2 py-1 font-medium ${
                         !f.last_attack
                           ? 'text-arena-muted'
-                          : f.last_attack.result === 'success'
+                          : f.last_attack?.result === 'success'
                             ? 'text-arena-green'
-                            : f.last_attack.result === 'blocked' || f.last_attack.result === 'rate_limited'
+                            : f.last_attack?.result === 'blocked' || f.last_attack?.result === 'rate_limited'
                               ? 'text-arena-orange'
                               : 'text-arena-red'
                       }`}
