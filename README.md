@@ -1,4 +1,4 @@
-# ACDA — Autonomous Cyber Defense Arena
+# arena
 
 A continuous, autonomous cybersecurity stress-testing system inspired by the SEMA framework (arXiv:2603.23875).
 
