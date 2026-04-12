@@ -43,7 +43,6 @@ def reset_node(state: SystemState) -> dict:
     - llm_decision → None  (V2: fresh decision each episode start)
     - current_attack_layer → 1  (V2: restart escalation ladder)
     - ioc_exports → []  (V2: cleared after policy_agent ingests them into KB)
-    - deep_logging_ips → []  (episode-scoped verbose logging targets)
     """
     next_episode = state["episode"] + 1
     clear_memory()
@@ -73,7 +72,6 @@ def reset_node(state: SystemState) -> dict:
         "llm_decision":          None,
         "current_attack_layer":  1,
         "ioc_exports":           [],
-        "deep_logging_ips":      [],
         # NOTE: behavioral_fingerprints and patch_records are NOT in this dict.
         # LangGraph only updates fields present in the return dict, so those
         # two fields carry forward automatically (Rule 14 in PROMPT_V2.md).

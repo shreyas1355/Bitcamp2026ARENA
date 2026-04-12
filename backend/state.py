@@ -160,9 +160,6 @@ class SystemState(TypedDict):
     # policy_agent ingests these into knowledge_base. CLEARED each reset.
     ioc_exports: List[Dict[str, Any]]
 
-    # ── V2: Deep request logging (middleware logs payload preview for these IPs)
-    deep_logging_ips: List[str]
-
 
 def get_initial_state(
     knowledge_base: List[Dict[str, Any]],
@@ -221,5 +218,4 @@ def get_initial_state(
         behavioral_fingerprints=[],   # persists across episodes
         patch_records=[],             # accumulates across episodes
         ioc_exports=[],
-        deep_logging_ips=[],
     )

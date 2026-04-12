@@ -1,8 +1,11 @@
 """
 middleware.py — Security middleware: request logger + IP blocker + rate limiter.
 
+TODO (Dev B, Phase 1): Implement logging first.
+TODO (Dev B, Phase 4): Add IP blocking and rate limiting enforcement.
+
 Runs on every request to the target router.
-Reads blocked_ips, rate_limited_endpoints, and deep_logging_ips from SYSTEM_STATE.
+Reads blocked_ips and rate_limited_endpoints from SYSTEM_STATE singleton.
 Appends one JSON line per request to data/logs.jsonl.
 """
 
@@ -10,28 +13,13 @@ import hashlib
 import json
 import time
 from collections import defaultdict, deque
-from typing import Dict, List
+from typing import Dict
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-from backend.config import LOG_FILE
-
-
-def _deep_logging_ips_list() -> List[str]:
-    try:
-        from backend.main import SYSTEM_STATE
-        dl = SYSTEM_STATE.get("deep_logging_ips")
-        if dl is None:
-            return []
-        if isinstance(dl, list):
-            return dl
-        if isinstance(dl, set):
-            return list(dl)
-        return []
-    except ImportError:
-        return []
+from backend.config import LOG_FILE, STEP_DELAY_S
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
@@ -50,10 +38,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
         start_time = time.time()
-        deep_ips = _deep_logging_ips_list()
-        is_deep = client_ip in deep_ips
 
         # ── IP blocking check ─────────────────────────────────────────────────
+        # Reads blocked_ips from the shared SYSTEM_STATE singleton.
+        # STATE_LOCK is not needed for reads — only writes require it.
         try:
             from backend.main import SYSTEM_STATE
             if client_ip in SYSTEM_STATE.get("blocked_ips", []):
@@ -65,23 +53,25 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     response_time_ms=0.0,
                     query_params=dict(request.query_params),
                     blocked=True,
-                    deep_logging=is_deep,
                 )
                 return Response("Forbidden", status_code=403)
         except ImportError:
-            pass
+            pass  # SYSTEM_STATE not available during early startup
 
         # ── Rate limiting check ───────────────────────────────────────────────
+        # Sliding window per (client_ip, endpoint). Limit is req/min.
         try:
             from backend.main import SYSTEM_STATE
             rate_limits = SYSTEM_STATE.get("rate_limited_endpoints", {})
 
+            # Match on the endpoint segment after /target (e.g. /target/login → /login)
             endpoint = "/" + path.split("/target/", 1)[-1].split("/")[0] if "/target/" in path else path
 
             if endpoint in rate_limits:
                 limit = rate_limits[endpoint]
                 window = self._request_counts[client_ip][endpoint]
                 now = time.time()
+                # Evict entries older than 60 seconds
                 while window and now - window[0] > 60:
                     window.popleft()
                 if len(window) >= limit:
@@ -93,7 +83,6 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                         response_time_ms=0.0,
                         query_params=dict(request.query_params),
                         rate_limited=True,
-                        deep_logging=is_deep,
                     )
                     return Response(
                         "Too Many Requests",
@@ -102,20 +91,20 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     )
                 window.append(now)
         except ImportError:
-            pass
+            pass  # SYSTEM_STATE not available during early startup
 
+        # ── Capture request body hash before passing to route handler ─────────
+        # request.body() caches to request._body in modern Starlette so the
+        # route handler can still read the body after this call.
         body_hash = ""
-        payload_preview = ""
-        body_bytes = b""
         try:
             body_bytes = await request.body()
             if body_bytes:
                 body_hash = hashlib.sha256(body_bytes).hexdigest()
-            if is_deep and body_bytes:
-                payload_preview = body_bytes[:4096].decode("utf-8", errors="replace")
         except Exception:
             pass
 
+        # Pass through to route handler
         response = await call_next(request)
         elapsed_ms = (time.time() - start_time) * 1000
 
@@ -127,8 +116,6 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             response_time_ms=elapsed_ms,
             query_params=dict(request.query_params),
             body_hash=body_hash,
-            deep_logging=is_deep,
-            payload_preview=payload_preview,
         )
 
         return response
@@ -144,14 +131,23 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         blocked: bool = False,
         rate_limited: bool = False,
         body_hash: str = "",
-        deep_logging: bool = False,
-        payload_preview: str = "",
     ) -> None:
         """
         Appends one JSON line to LOG_FILE.
 
-        When deep_logging is True (IP in state deep_logging_ips), query_params are
-        still the full mapping; payload_preview adds decoded body text for POST/PUT.
+        Log entry schema (blue team reads this exact format):
+        {
+          "timestamp":             float,
+          "ip":                    str,
+          "method":                str,
+          "path":                  str,
+          "status_code":           int,
+          "response_time_ms":      float,
+          "query_params":          dict,
+          "blocked_by_middleware": bool,
+          "rate_limited":          bool,
+          "body_hash":             str   (sha256 hex of request body, "" if empty)
+        }
         """
         entry = {
             "timestamp":             time.time(),
@@ -165,10 +161,6 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             "rate_limited":          rate_limited,
             "body_hash":             body_hash,
         }
-        if deep_logging:
-            entry["deep_logging"] = True
-        if payload_preview:
-            entry["payload_preview"] = payload_preview
         try:
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps(entry) + "\n")
