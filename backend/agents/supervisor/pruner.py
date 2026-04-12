@@ -5,7 +5,7 @@ SEMA structural entropy observation pruning (Algorithm 1, PROMPT §2 / §8.4).
 from __future__ import annotations
 
 import math
-from typing import Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import networkx as nx
 
@@ -109,7 +109,7 @@ def _delta_h_for_node(G: nx.Graph, node: str) -> float:
 def prune_observation(state: SystemState) -> Dict[str, object]:
     obs: Dict[str, float] = dict(state.get("raw_observation") or {})
     if not obs:
-        return {"pruned_observation": {}}
+        return {"pruned_observation": {}, "last_prune_removed": []}
 
     mem = state.get("short_term_memory") or []
     if mem:
@@ -122,13 +122,13 @@ def prune_observation(state: SystemState) -> Dict[str, object]:
     keys = list(obs.keys())
 
     if len(keys) <= 1 or G.number_of_edges() == 0:
-        return {"pruned_observation": dict(obs)}
+        return {"pruned_observation": dict(obs), "last_prune_removed": []}
 
     delta_map: Dict[str, float] = {k: _delta_h_for_node(G, k) for k in keys}
 
     vcand = [k for k in keys if delta_map[k] < PRUNE_MU]
     if not vcand:
-        return {"pruned_observation": dict(obs)}
+        return {"pruned_observation": dict(obs), "last_prune_removed": []}
 
     vcand_sorted = sorted(vcand, key=lambda k: delta_map[k])
     if len(vcand_sorted) > PRUNE_N:
@@ -138,15 +138,20 @@ def prune_observation(state: SystemState) -> Dict[str, object]:
 
     max_remove = len(obs) // 2
     if max_remove < 1:
-        return {"pruned_observation": dict(obs)}
+        return {"pruned_observation": dict(obs), "last_prune_removed": []}
     vremove = vremove_candidates[:max_remove]
 
     pruned = {k: v for k, v in obs.items() if k not in vremove}
+    removed_meta: List[Dict[str, Any]] = [
+        {"attribute": k, "delta_h": round(float(delta_map.get(k, 0.0)), 6)}
+        for k in vremove
+    ]
+    removed_meta.sort(key=lambda r: r["delta_h"])
     print(
         f"  [PRUNE] removed {len(vremove)}/{len(keys)} attrs: {vremove[:12]}"
         f"{'...' if len(vremove) > 12 else ''}"
     )
-    return {"pruned_observation": pruned}
+    return {"pruned_observation": pruned, "last_prune_removed": removed_meta}
 
 
 def prune_node(state: SystemState) -> Dict[str, object]:

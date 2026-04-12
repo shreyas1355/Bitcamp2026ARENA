@@ -1,9 +1,14 @@
 import json
+import math
 import time
 from collections import defaultdict
 
 from backend.state import SystemState
 from backend.config import LOG_FILE, LOG_WINDOW_SECONDS, MAX_LOG_LINES
+
+# If episode_start_time is missing/corrupt, anchor slightly before wall clock so
+# log lines written earlier in the same graph step still satisfy timestamp >= cutoff.
+_EPISODE_ANCHOR_FALLBACK_SLACK_S = 3.0
 from backend.agents.blue.anomaly_detector import (
     run_anomaly_detection,
     SQLI_REGEX,
@@ -80,9 +85,15 @@ def read_recent_logs(
     Returns log entries from the last `window_s` seconds, but never older
     than `min_timestamp` (episode start time).  Passing min_timestamp prevents
     episode N-1 attack evidence from bleeding into episode N's anomaly rules.
+
+    Callers must pass a positive finite episode anchor (typically
+    ``SystemState["episode_start_time"]``). Using 0.0 defeats the fence because
+    ``cutoff`` becomes ``time.time() - window_s`` only.
     """
     try:
-        with open(filepath, "r") as f:
+        # errors="replace" keeps the arena running if logs.jsonl was saved as UTF-16
+        # or corrupted; bad lines are skipped below as JSON errors.
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[-max_lines:]
     except FileNotFoundError:
         return []
@@ -235,8 +246,28 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
     return base
 
 
+def _episode_log_anchor(state: SystemState) -> float:
+    """
+    Unix time before which log lines must not affect this episode's blue layer.
+
+    ``read_recent_logs`` uses max(now - window, anchor). If anchor is 0 (epoch),
+    the episode fence is ineffective. In normal runs, ``reset_node`` and
+    ``get_initial_state`` set ``episode_start_time`` to a positive unix time.
+
+    If the field is missing or invalid, we must not use ``time.time()`` alone:
+    that makes cutoff ≈ now and drops JSONL lines timestamped milliseconds earlier
+    in the same step. The fallback anchors a few seconds in the past instead.
+    """
+    raw = state.get("episode_start_time")
+    if type(raw) is int or type(raw) is float:
+        t = float(raw)
+        if t > 0.0 and math.isfinite(t):
+            return t
+    return time.time() - _EPISODE_ANCHOR_FALLBACK_SLACK_S
+
+
 def blue_node(state: SystemState) -> dict:
-    episode_start = state.get("episode_start_time", 0.0)
+    episode_start = _episode_log_anchor(state)
     logs = read_recent_logs(LOG_FILE, LOG_WINDOW_SECONDS, MAX_LOG_LINES, min_timestamp=episode_start)
     obs = build_raw_observation(logs, state)
     findings = run_anomaly_detection(obs, logs, state)

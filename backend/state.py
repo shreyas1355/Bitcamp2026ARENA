@@ -127,6 +127,8 @@ class SystemState(TypedDict):
     # pruned_observation: after SEMA structural entropy pruning — sent to Gemini
     raw_observation: Dict[str, float]
     pruned_observation: Dict[str, float]
+    # SEMA: attributes removed last prune step, with δH (structural entropy contribution)
+    last_prune_removed: List[Dict[str, Any]]  # [{"attribute": str, "delta_h": float}, ...]
 
     # ── Evaluation agent output ────────────────────────────────────────────────
     retrieved_similar_step: Optional[Dict[str, Any]]
@@ -208,6 +210,7 @@ def get_initial_state(
 
         raw_observation={},
         pruned_observation={},
+        last_prune_removed=[],
 
         retrieved_similar_step=None,
         prior_recommendation="none",

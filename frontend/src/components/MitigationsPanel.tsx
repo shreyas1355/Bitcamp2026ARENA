@@ -1,18 +1,16 @@
 interface Props {
   mitigations: Record<string, boolean>
   blockedIps: string[]
+  embedded?: boolean
 }
 
-export function MitigationsPanel({ mitigations, blockedIps }: Props) {
+export function MitigationsPanel({ mitigations, blockedIps, embedded }: Props) {
   const active = Object.entries(mitigations).filter(([, v]) => v)
 
-  return (
-    <section className="rounded-lg border border-arena-border bg-arena-surface p-4 text-left">
-      <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-arena-muted">
-        Mitigations & blocks
-      </h2>
+  const inner = (
+    <>
       <div className="mb-3">
-        <p className="text-xs font-medium uppercase text-arena-muted">Active flags</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Active flags</p>
         {active.length === 0 ? (
           <p className="text-sm text-arena-muted">None active.</p>
         ) : (
@@ -20,7 +18,7 @@ export function MitigationsPanel({ mitigations, blockedIps }: Props) {
             {active.map(([k]) => (
               <li
                 key={k}
-                className="rounded bg-arena-green/15 px-2 py-0.5 font-mono text-xs text-arena-green"
+                className="rounded border border-arena-green/30 bg-arena-green-soft px-2 py-0.5 font-mono-telemetry text-xs text-arena-green"
               >
                 {k}
               </li>
@@ -29,17 +27,28 @@ export function MitigationsPanel({ mitigations, blockedIps }: Props) {
         )}
       </div>
       <div>
-        <p className="text-xs font-medium uppercase text-arena-muted">Blocked IPs</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Blocked IPs</p>
         {blockedIps.length === 0 ? (
           <p className="text-sm text-arena-muted">None.</p>
         ) : (
-          <ul className="mt-1 font-mono text-xs text-arena-orange">
+          <ul className="mt-1 font-mono-telemetry text-xs text-arena-orange">
             {blockedIps.map((ip) => (
               <li key={ip}>{ip}</li>
             ))}
           </ul>
         )}
       </div>
+    </>
+  )
+
+  if (embedded) return <div className="text-left">{inner}</div>
+
+  return (
+    <section className="rounded-lg border border-arena-border bg-arena-surface p-4 text-left shadow-sm">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-arena-muted">
+        Mitigations & blocks
+      </h2>
+      {inner}
     </section>
   )
 }

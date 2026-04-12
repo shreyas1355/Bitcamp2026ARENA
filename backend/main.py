@@ -210,6 +210,7 @@ async def get_state():
         "current_attack_layer":  SYSTEM_STATE.get("current_attack_layer", 1),
         "patch_records":         SYSTEM_STATE.get("patch_records", []),
         "llm_decision":          SYSTEM_STATE.get("llm_decision"),
+        "last_prune_removed":    SYSTEM_STATE.get("last_prune_removed", []),
     }
 
 @app.get("/health")

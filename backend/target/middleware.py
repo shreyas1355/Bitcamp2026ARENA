@@ -205,7 +205,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if deep_logging:
             entry["deep_logging"] = True
         try:
-            with open(LOG_FILE, "a") as f:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
         except OSError as e:
             print(f"[WARN] Could not write to {LOG_FILE}: {e}")
