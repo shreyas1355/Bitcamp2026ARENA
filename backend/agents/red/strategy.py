@@ -55,37 +55,27 @@ TECHNIQUE_TO_EXECUTOR: Dict[str, str] = {
     "surface_mapping": "recon",
 }
 
-STRATEGY_SYSTEM_CONTEXT = """You are an autonomous penetration tester targeting a web application.
-Your goal is to find and exploit security vulnerabilities to their maximum impact.
+STRATEGY_SYSTEM_CONTEXT = """Autonomous penetration tester. Goal: exploit vulnerabilities to maximum impact.
 
-You have access to these attack capabilities:
-- Authentication attacks: bruteforce, credential_stuffing, timing_enumeration
-- Authorization attacks: idor, auth_bypass, privilege_escalation
-- Injection attacks: sqli_auth_bypass, sqli_filter_param, sqli_union, sqli_blind, path_traversal, path_traversal_encoded
-- Business logic attacks: negative_transfer, race_condition, replay_attack, integer_overflow
-- Evasion techniques: sqli_double_encoded, timing_mimic, header_injection, ua_spoofing
-- Reconnaissance: recon, surface_mapping
+Techniques: bruteforce, credential_stuffing, timing_enumeration, idor, auth_bypass, privilege_escalation, sqli_auth_bypass, sqli_filter_param, sqli_union, sqli_blind, path_traversal, path_traversal_encoded, negative_transfer, race_condition, replay_attack, integer_overflow, sqli_double_encoded, timing_mimic, header_injection, ua_spoofing, recon, surface_mapping
 
-EXPLOITATION PRIORITY RULES:
-1. If a previous step showed "success" on an endpoint, DEEPEN that exploit before moving on.
-   - sqli→success: escalate to sqli_union or sqli_blind to exfiltrate data
-   - bruteforce→success: use the harvested credentials for privilege_escalation or idor
-   - path_traversal→success: read /etc/shadow, /proc/self/environ, or config files next
-   - auth_bypass→success: immediately probe admin-only endpoints (idor, mass_assignment)
-2. Only move to a new surface after confirmed successes have been fully escalated.
-3. If you are blocked (HTTP 403), switch technique and endpoint immediately — do not retry.
-4. If an endpoint has been patched (in ACTIVE MITIGATIONS), never retry it with the same technique."""
+STRICT RULES (apply in this order):
+1. Any surface in EXHAUSTED list = NEVER retry. It is blocked/patched — choose a DIFFERENT endpoint AND technique.
+2. Any technique in ACTIVE DEFENSES = do not use against that endpoint.
+3. Deepen a CONFIRMED SUCCESS that is not exhausted (escalate same endpoint to extract more data).
+4. If no confirmed successes remain, explore a new surface."""
 
-DECISION_SCHEMA = """{
-  "technique": "<technique_name from the list above>",
-  "target_endpoint": "<endpoint path, e.g. /login or /data>",
-  "method": "<GET|POST|PUT|DELETE>",
-  "params": {"<key>": "<value>"},
-  "headers": {"<key>": "<value>"},
-  "payload": {"<key>": "<value>"},
-  "rationale": "<one sentence: why this technique on this endpoint now>",
-  "attack_layer": <integer 1-6>
-}"""
+DECISION_SCHEMA = '{"technique":"<name>","target_endpoint":"</path>","method":"<GET|POST>","params":{},"headers":{},"payload":{},"rationale":"<one sentence>","attack_layer":<1-6>}'
+
+# Maps internal active_mitigations keys → human-readable description for the LLM prompt
+MITIGATION_DESCRIPTIONS = {
+    "rate_limit_login":   "/login is rate-limited — login-based attacks will be blocked",
+    "idor_check_enabled": "/data IDOR protection enabled — ownership checks enforced",
+    "proper_admin_auth":  "/admin auth hardened — token bypass attacks blocked",
+    "proper_auth":        "/login SQL injection patched — SQLi attacks blocked",
+    "csrf_protection":    "/transfer CSRF protection active",
+    "path_sanitization":  "/files path traversal patched — traversal attacks blocked",
+}
 
 FALLBACK_AGENT_ROSTER = [
     "recon", "bruteforce", "sqli_auth_bypass", "idor",
@@ -94,66 +84,90 @@ FALLBACK_AGENT_ROSTER = [
 ]
 
 
+def _get_exhausted_surfaces(all_memory: list, threshold: int = 3) -> dict[str, int]:
+    """
+    Returns {surface_key: consecutive_failure_count} for surfaces with >= threshold
+    consecutive recent failures (failed/blocked/rate_limited, no success since).
+    """
+    streak: dict[str, int] = {}
+    for m in all_memory:
+        a = m.get("attack") or {}
+        key = f"{a.get('type','?')} on {a.get('target','?')}"
+        result = a.get("result", "")
+        if result in ("failed", "blocked", "rate_limited"):
+            streak[key] = streak.get(key, 0) + 1
+        elif result == "success":
+            streak[key] = 0
+    return {k: v for k, v in streak.items() if v >= threshold}
+
+
 def build_strategy_prompt(state: SystemState) -> str:
     """
-    Builds a compact prompt: pruned telemetry, last 5 memory rows, mitigations, layer, supervisor hint.
+    Builds a compact prompt: pruned telemetry (non-zero only), last 3 memory rows,
+    exhausted surfaces, confirmed successes, human-readable defenses, layer.
     """
     obs = state.get("pruned_observation", {})
-    memory = (state.get("short_term_memory") or [])[-5:]
+    all_memory = state.get("short_term_memory") or []
+    memory = all_memory[-3:]  # 3 steps is enough context; 5 was too verbose
     mitigations = state.get("active_mitigations", {})
     episode_pool = state.get("episode_pool", [])
     layer = state.get("current_attack_layer", 1)
 
-    active_m = [k for k, v in mitigations.items() if v]
+    # Compact telemetry: only non-zero attributes, inline k=v format
+    non_zero = {k: (round(v, 3) if isinstance(v, float) else v)
+                for k, v in obs.items() if v not in (0, 0.0, None, "")}
+    obs_str = ", ".join(f"{k}={v}" for k, v in non_zero.items()) if non_zero else "no anomalous activity"
+
+    # Human-readable active defenses
+    active_defenses = [
+        MITIGATION_DESCRIPTIONS.get(k, k)
+        for k, v in mitigations.items() if v
+    ]
+
+    # Exhausted surfaces (too many consecutive failures — LLM must abandon these)
+    exhausted = _get_exhausted_surfaces(all_memory, threshold=3)
+
+    # Confirmed successes that are NOT already exhausted
+    seen: set[str] = set()
+    active_successes: list[str] = []
+    for m in all_memory:
+        a = m.get("attack") or {}
+        if a.get("result") == "success":
+            key = f"{a.get('type','?')} on {a.get('target','?')}"
+            if key not in seen and key not in exhausted:
+                seen.add(key)
+                active_successes.append(key)
 
     memory_lines = []
     for m in memory:
-        a = m.get("attack", {})
-        d = m.get("llm_decision", {})
-        line = (
-            f" - {a.get('type', '?')} on {a.get('target', '?')} → {a.get('result', '?')}"
-        )
-        if d.get("rationale"):
-            line += f" (rationale: {d.get('rationale', '')})"
+        a = m.get("attack") or {}
+        line = f" - {a.get('type','?')} on {a.get('target','?')} -> {a.get('result','?')}"
         memory_lines.append(line)
 
     supervisor_hint = ""
     if episode_pool:
-        supervisor_hint = f"\nSupervisor recommendation: {episode_pool[-1][:200]}"
+        supervisor_hint = f"\nSupervisor hint: {episode_pool[-1][:120]}"
 
-    # Surfaces with confirmed successes this episode — shown separately so the LLM
-    # prioritises deepening exploitation over breadth-first surface exploration.
-    all_memory = state.get("short_term_memory") or []
-    confirmed_successes = []
-    for m in all_memory:
-        a = m.get("attack") or {}
-        if a.get("result") == "success":
-            entry = f"{a.get('type','?')} on {a.get('target','?')}"
-            if entry not in confirmed_successes:
-                confirmed_successes.append(entry)
+    exhausted_lines = [f"  {k} ({v} consecutive failures)" for k, v in exhausted.items()]
+    success_lines = [f"  {s}" for s in active_successes]
 
     return f"""{STRATEGY_SYSTEM_CONTEXT}
 
-CURRENT SECURITY TELEMETRY (high-signal attributes only, pre-filtered by structural entropy):
-{json.dumps(obs, indent=2)}
+TELEMETRY: {obs_str}
 
-CONFIRMED SUCCESSES THIS EPISODE (deepen these — do not abandon them):
-{chr(10).join(f"  [SUCCESS] {s}" for s in confirmed_successes) if confirmed_successes else "  None yet"}
+EXHAUSTED (never retry — blocked or patched):
+{chr(10).join(exhausted_lines) if exhausted_lines else "  none"}
 
-RECENT HISTORY (last 5 steps):
-{chr(10).join(memory_lines) if memory_lines else "  No history yet — first steps of episode."}
+CONFIRMED SUCCESSES (still exploitable — deepen these):
+{chr(10).join(success_lines) if success_lines else "  none yet"}
 
-ACTIVE MITIGATIONS (patched — do not retry these):
-{", ".join(active_m) if active_m else "None yet"}
+RECENT HISTORY:
+{chr(10).join(memory_lines) if memory_lines else "  none"}
 
-CURRENT ATTACK LAYER: {layer} — {ATTACK_LAYERS.get(layer, "unknown")}
-{supervisor_hint}
+ACTIVE DEFENSES:
+{chr(10).join(f"  - {d}" for d in active_defenses) if active_defenses else "  none"}
 
-Decide your next attack. Prioritise:
-1. Deepening a CONFIRMED SUCCESS from the list above (escalate the same endpoint/technique)
-2. If all confirmed successes are fully exploited, pick the next unexplored surface
-3. Never retry a technique blocked by ACTIVE MITIGATIONS
-4. Keep all header and payload string values under 60 characters"""
+ATTACK LAYER: {layer} ({ATTACK_LAYERS.get(layer, "unknown")}){supervisor_hint}"""
 
 
 def _normalize_decision(raw: Dict[str, Any]) -> LLMDecision:

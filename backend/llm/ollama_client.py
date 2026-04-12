@@ -145,10 +145,9 @@ def call_ollama_json(prompt: str, schema_hint: str) -> dict[str, Any]:
 
     RuntimeError propagates only for connection / timeout from call_ollama.
     """
-    json_suffix = (
-        f"\n\nRespond ONLY with valid JSON matching this schema:\n{schema_hint}"
-        "\nNo explanation. No markdown. No code fences. Just the raw JSON object."
-    )
+    # Keep the suffix short — it's appended to an already-long strategy prompt.
+    # Verbose instructions eat into the timeout budget on slow hardware.
+    json_suffix = f"\n\nOutput ONLY valid JSON: {schema_hint}"
 
     raw = ""
     try:
@@ -160,12 +159,14 @@ def call_ollama_json(prompt: str, schema_hint: str) -> dict[str, Any]:
         print(f"[OLLAMA] JSON parse failed (attempt 1). Raw head: {raw[:160]!r}")
 
     try:
-        strict_suffix = (
-            json_suffix
-            + "\n\nCRITICAL: Your entire reply must be one JSON object only. "
-            "Start with { and end with }."
+        # Attempt 2: strip the strategy context, send only the minimal decision request.
+        # This is deliberately shorter than attempt 1 — the truncation that caused
+        # attempt 1 to fail was a timeout; a shorter prompt fits the budget.
+        minimal_prompt = (
+            "Output ONLY a JSON object (no other text) with these fields: "
+            f"{schema_hint}"
         )
-        raw = call_ollama(prompt + strict_suffix)
+        raw = call_ollama(minimal_prompt)
         return _parse_json(raw)
     except RuntimeError:
         raise

@@ -77,7 +77,7 @@ SAMPLE_LOGS_FILE    = "data/sample_logs.jsonl"
 # Start with: `ollama serve`  |  Pull with: `ollama pull llama3`
 OLLAMA_MODEL          = os.environ.get("OLLAMA_MODEL", "llama3")
 OLLAMA_FALLBACK_MODEL = "mistral"   # tried if llama3 is not available
-OLLAMA_TIMEOUT_S      = 10.0        # per-step timeout; if exceeded, use fallback decision
+OLLAMA_TIMEOUT_S      = 15.0        # per-step timeout; if exceeded, use fallback decision
 OLLAMA_PING_TIMEOUT_S = 5.0         # startup health check for check_ollama_available()
 # Max tokens per chat completion (JSON decisions need room for rationale + fields).
 # Increase if you see truncated JSON mid-string; set via env OLLAMA_NUM_PREDICT.

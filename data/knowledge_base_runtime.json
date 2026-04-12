@@ -1,0 +1,93 @@
+[
+  {
+    "id": "KB001",
+    "tags": [
+      "sqli",
+      "authentication",
+      "CWE-89"
+    ],
+    "content": "SQL Injection in authentication endpoints: Never concatenate user input into SQL strings. Use parameterized queries or ORM with parameter binding. Mitigation: prepared statements, input validation with allowlists, WAF rules blocking SQL metacharacters (', --, UNION, SELECT, OR, AND). Detection: look for these patterns in query parameters and request bodies."
+  },
+  {
+    "id": "KB002",
+    "tags": [
+      "idor",
+      "authorization",
+      "CWE-639"
+    ],
+    "content": "Insecure Direct Object Reference: Always verify the authenticated user owns or has permission to access the requested resource. Never trust client-supplied identifiers without a server-side ownership check. Mitigation: add authorization layer between authentication and data retrieval, use indirect references (UUIDs instead of sequential integers), implement RBAC."
+  },
+  {
+    "id": "KB003",
+    "tags": [
+      "path_traversal",
+      "file_access",
+      "CWE-22"
+    ],
+    "content": "Path Traversal: Never pass user input directly to filesystem operations. Sanitize using os.path.basename(), validate the resolved path is within an allowed directory (chroot jail check), use an allowlist of permitted filenames. Encoded variants (%2e%2e, double-encoding) must also be normalized and checked. Detection: look for ../, ..\\ and their encoded forms in file path parameters."
+  },
+  {
+    "id": "KB004",
+    "tags": [
+      "auth_bypass",
+      "access_control",
+      "CWE-284",
+      "token_validation"
+    ],
+    "content": "Improper Access Control \u00e2\u20ac\u201d Weak Token Validation: Never use substring matching for authorization checks (e.g. 'admin' in token). Use cryptographic token validation: JWT with signature verification, or lookup against a server-side session store. Implement proper RBAC with explicit role checks. Tokens must be unpredictable (use secrets.token_hex(32) minimum)."
+  },
+  {
+    "id": "KB005",
+    "tags": [
+      "bruteforce",
+      "rate_limiting",
+      "CWE-307",
+      "credential_stuffing"
+    ],
+    "content": "Improper Restriction of Authentication Attempts: Implement rate limiting (max 5 failed attempts per IP per minute), account lockout after N consecutive failures with exponential backoff, CAPTCHA for repeated failures. Always use constant-time password comparison to prevent timing attacks. Return identical generic error messages for all authentication failures ('Authentication failed' \u00e2\u20ac\u201d never disclose whether username exists)."
+  },
+  {
+    "id": "KB006",
+    "tags": [
+      "csrf",
+      "transfer",
+      "CWE-352",
+      "reauth"
+    ],
+    "content": "Cross-Site Request Forgery: Require a CSRF token (unpredictable, tied to session) in all state-changing requests (POST, PUT, DELETE). Validate the token server-side before processing. Require re-authentication for sensitive operations (fund transfers, password changes, privilege escalation). Check Origin and Referer headers as secondary defense."
+  },
+  {
+    "id": "KB007",
+    "tags": [
+      "mass_assignment",
+      "input_validation",
+      "CWE-915"
+    ],
+    "content": "Mass Assignment / Parameter Pollution: Explicitly whitelist allowed fields in request body models using Pydantic with strict schemas. Never use model_fields='__all__' or equivalent. Use separate request schemas (what users can send) vs internal schemas (all fields). This prevents attackers from setting fields like is_admin, role, or privilege_level via the API."
+  },
+  {
+    "id": "KB008",
+    "tags": [
+      "timing",
+      "enumeration",
+      "CWE-208",
+      "username_enumeration"
+    ],
+    "content": "Observable Timing Discrepancy: Use constant-time comparison for all authentication checks (hmac.compare_digest). Always execute the full authentication pipeline (including password hashing) even for nonexistent users \u00e2\u20ac\u201d use a dummy hash. Return identical error messages and aim for identical response times regardless of which part of authentication failed. Detection: measure response time variance across many login attempts with different usernames."
+  },
+  {
+    "id": "KB009",
+    "tags": [
+      "sqli",
+      "encoding_evasion",
+      "detection_bypass",
+      "CWE-89"
+    ],
+    "content": "Double URL-encoding bypasses naive SQLi regex detection. The sequence ' \u00e2\u2020\u2019 %27 \u00e2\u2020\u2019 %2527 produces a payload that looks benign to string matching but decodes to a SQL injection character after server-side URL normalization. Always apply urllib.parse.unquote() iteratively (up to 3 times) before applying SQLi signature detection. This variant was discovered autonomously by the LLM red team in episode 3."
+  },
+  {
+    "id": "KB_RUNTIME_BEHAVIORAL",
+    "pattern": "ip_rotation",
+    "severity": "high"
+  }
+]
