@@ -26,27 +26,7 @@ from backend.state import SystemState
 from backend.config import STEP_DELAY_S
 
 
-# ── Stub nodes (replace with real imports as agents are implemented) ──────────
-
-def _stub_red_node(state: SystemState) -> dict:
-    """
-    Placeholder until Dev B implements backend/agents/red/strategy.py.
-    Returns a hardcoded successful bruteforce AttackEvent.
-    """
-    print(f"  [RED-STUB]  episode={state['episode']} step={state['step']}")
-    return {
-        "last_attack": {
-            "type":      "bruteforce",
-            "target":    "/login",
-            "payload":   "admin:password",
-            "result":    "success",
-            "evidence":  "HTTP 200 (STUB)",
-            "cwe":       "",
-            "severity":  "medium",
-            "timestamp": time.time(),
-        }
-    }
-
+# ── Stub nodes (blue still stubbed until log_monitor is wired) ─────────────────
 
 def _stub_blue_node(state: SystemState) -> dict:
     """
@@ -74,9 +54,9 @@ def _stub_blue_node(state: SystemState) -> dict:
 
 # ── Real node imports ─────────────────────────────────────────────────────────
 
-# TODO: Replace _stub_red_node with backend.agents.red.strategy.red_node
 # TODO: Replace _stub_blue_node with backend.agents.blue.log_monitor.blue_node
 
+from backend.agents.red.strategy import red_node as _real_red_node
 from backend.agents.supervisor.pruner import prune_node as _real_prune_node
 from backend.agents.supervisor.evaluation_agent import evaluation_node as _real_evaluation_node
 
@@ -101,7 +81,7 @@ from backend.agents.supervisor.patch_agent import patch_node as _real_patch_node
 
 # ── Active node assignments (swap stubs for reals here) ───────────────────────
 
-red_node        = _stub_red_node
+red_node        = _real_red_node
 blue_node       = _stub_blue_node
 prune_node      = _real_prune_node
 evaluation_node = _real_evaluation_node

@@ -93,6 +93,7 @@ def broadcast_step_update(state: dict):
         "last_defense":         state.get("last_defense"),
         "active_mitigations":   state.get("active_mitigations", {}),
         "vulnerabilities_found": state.get("vulnerabilities_found", []),
+        "llm_decision":         state.get("llm_decision"),
     })
 
 
