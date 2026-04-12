@@ -35,6 +35,19 @@ RATE_LIMIT_MAP = {
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
 
 
+def _rate_limit_endpoint_key(path: str) -> str:
+    """
+    Must match backend.target.middleware: dict keys are the first segment
+    after /target (e.g. /target/login → /login), not full paths.
+    """
+    if not path:
+        return "/login"
+    if "/target/" in path:
+        seg = path.split("/target/", 1)[-1].split("/")[0]
+        return "/" + seg if seg else path
+    return path
+
+
 def _defense_none() -> dict:
     return {
         "action": "none",
@@ -86,10 +99,8 @@ def _append_behavioral_fingerprint(state: SystemState, evidence: Dict[str, Any])
         state.setdefault("behavioral_fingerprints", []).append(fp)
 
 
-def _ensure_deep_logging_set(state: SystemState) -> Any:
-    if "deep_logging_ips" not in state:
-        state["deep_logging_ips"] = set()
-    return state["deep_logging_ips"]
+def _ensure_deep_logging_ips(state: SystemState) -> List[str]:
+    return state.setdefault("deep_logging_ips", [])
 
 
 def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[dict]:
@@ -132,18 +143,17 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
 
     if action == "deep_log_attacker":
         if src_ip:
-            dl = _ensure_deep_logging_set(state)
-            if isinstance(dl, set):
-                dl.add(src_ip)
-            elif isinstance(dl, list) and src_ip not in dl:
+            dl = _ensure_deep_logging_ips(state)
+            if src_ip not in dl:
                 dl.append(src_ip)
         return _defense_event("alert_only", rule_id, src_ip, target_ep, ts)
 
     if action == "rate_limit":
         limit = RATE_LIMIT_MAP.get(rule_id, RATE_LIMIT_LOGIN_HIGH)
-        ep = target_ep or "/target/login"
+        raw = target_ep or "/target/login"
+        ep = _rate_limit_endpoint_key(raw)
         state["rate_limited_endpoints"][ep] = limit
-        if "/login" in ep:
+        if ep == "/login" or "/login" in raw:
             state["active_mitigations"]["rate_limit_login"] = True
         return _defense_event("rate_limit", rule_id, "", ep, ts)
 
@@ -181,7 +191,7 @@ def apply_mitigations(findings: List[Finding], state: SystemState) -> dict:
     with STATE_LOCK:
         state.setdefault("behavioral_fingerprints", [])
         state.setdefault("ioc_exports", [])
-        _ensure_deep_logging_set(state)
+        _ensure_deep_logging_ips(state)
 
         for idx, finding in enumerate(findings):
             event = _apply_finding(finding, state, ts)

@@ -1,10 +1,10 @@
 """
 anomaly_detector.py — Rule-based threat detection engine.
 
-See .cursorrules §8.3 (V2). Rules run in RULE_PIPELINE order; every triggered
-rule is collected; responder applies mitigations and picks the highest-severity
-DefenseEvent.
- """
+See .cursorrules §8.3 (V2). Rules run in pipeline order (RULE_PIPELINE); every
+triggered rule is collected; responder applies mitigations and picks the
+highest-severity DefenseEvent.
+"""
 
 import hashlib
 import math
@@ -60,10 +60,6 @@ def _iter_param_values(entry: dict[str, Any]) -> list[str]:
     for v in {**params, **payload}.values():
         out.append(str(v))
     return out
-
-
-def _param_blob(entry: dict[str, Any]) -> str:
-    return " ".join(_iter_param_values(entry))
 
 
 def _finding(
@@ -131,6 +127,7 @@ def _build_behavioral_signature(ip: str, logs: list) -> Optional[dict[str, Any]]
     ua = Counter(uas).most_common(1)[0][0] if uas else ""
     ua_h = _ua_hash_norm(ua)
     return {
+        "ip": ip,
         "inter_arrival_mean": mean_gap,
         "inter_arrival_cv": cv,
         "endpoint_sequence": last5,
@@ -214,38 +211,23 @@ def rule_path_traversal(
     state: SystemState,
     flagged_ips: Optional[Set[str]] = None,
 ) -> Optional[Finding]:
+    # Per-param: normalized first (encoded traversal), then raw — same idea as log_monitor.
     for entry in logs:
         for raw in _iter_param_values(entry):
             norm = _normalize_for_detection(raw)
-            if TRAVERSAL_REGEX.search(norm):
+            if TRAVERSAL_REGEX.search(norm) or TRAVERSAL_REGEX.search(raw):
                 return _finding(
                     "RULE_PATH_TRAVERSAL",
                     "high",
                     entry.get("ip", ""),
                     entry.get("path", ""),
-                    {"path": entry.get("path"), "normalized_sample": norm[:200]},
+                    {
+                        "path": entry.get("path"),
+                        "normalized_sample": norm[:200],
+                    },
                     "block_ip",
                 )
-    if obs.get("path_traversal_detected", 0) <= 0:
-        return None
-    for entry in logs:
-        if TRAVERSAL_REGEX.search(_param_blob(entry)):
-            return _finding(
-                "RULE_PATH_TRAVERSAL",
-                "high",
-                entry.get("ip", ""),
-                entry.get("path", ""),
-                {"path": entry.get("path")},
-                "block_ip",
-            )
-    return _finding(
-        "RULE_PATH_TRAVERSAL",
-        "high",
-        "",
-        "",
-        {"reason": "path_traversal_detected>0 but no log line matched"},
-        "block_ip",
-    )
+    return None
 
 
 def rule_time_based_sqli(
@@ -533,7 +515,9 @@ def rule_large_get_payload(
     )
 
 
-RULE_PIPELINE = [
+# All rules except the catch-all; run rule_anomalous_success_rate last so flagged_ips
+# includes every other rule's source_ip in this step (including recon / large payload).
+PIPELINE_BEFORE_ANOMALOUS = [
     rule_sqli_signature,
     rule_sqli_encoded,
     rule_path_traversal,
@@ -545,10 +529,13 @@ RULE_PIPELINE = [
     rule_slow_scripted_probe,
     rule_high_login_rate,
     rule_endpoint_flood,
-    rule_anomalous_success_rate,
     rule_ip_recon_sweep,
     rule_large_get_payload,
 ]
+
+# Full logical order (anomalous_success last). run_anomaly_detection implements this by
+# iterating PIPELINE_BEFORE_ANOMALOUS then calling rule_anomalous_success_rate once.
+RULE_PIPELINE = PIPELINE_BEFORE_ANOMALOUS + [rule_anomalous_success_rate]
 
 
 def run_anomaly_detection(
@@ -556,14 +543,17 @@ def run_anomaly_detection(
     logs: list,
     state: SystemState,
 ) -> list:
-    """Runs all rules in order; returns every triggered Finding."""
+    """Runs rules in order; anomalous-success runs last with full flagged_ips."""
     findings: list[Finding] = []
     flagged_ips: set[str] = set()
-    for rule_fn in RULE_PIPELINE:
+    for rule_fn in PIPELINE_BEFORE_ANOMALOUS:
         finding = rule_fn(obs, logs, state, flagged_ips)
         if finding is not None:
             findings.append(finding)
             sip = finding.get("source_ip") or ""
             if sip:
                 flagged_ips.add(sip)
+    late = rule_anomalous_success_rate(obs, logs, state, flagged_ips)
+    if late is not None:
+        findings.append(late)
     return findings

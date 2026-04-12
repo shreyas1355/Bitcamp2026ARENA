@@ -1,11 +1,74 @@
 import json
 import time
 from collections import defaultdict
+
 from backend.state import SystemState
 from backend.config import LOG_FILE, LOG_WINDOW_SECONDS, MAX_LOG_LINES
-from backend.agents.blue.anomaly_detector import run_anomaly_detection
+from backend.agents.blue.anomaly_detector import (
+    run_anomaly_detection,
+    SQLI_REGEX,
+    TRAVERSAL_REGEX,
+    _normalize_for_detection,
+    _build_behavioral_signature,
+)
 from backend.agents.blue.responder import apply_mitigations
-from backend.agents.blue.anomaly_detector import SQLI_REGEX, TRAVERSAL_REGEX
+
+
+def _entry_line_has_sqli_raw(entry: dict) -> bool:
+    """Must match rule_sqli_signature (raw only); encoded-only is rule_sqli_encoded."""
+    params = entry.get("query_params") or {}
+    payload = entry.get("payload") or {}
+    for v in {**params, **payload}.values():
+        if SQLI_REGEX.search(str(v)):
+            return True
+    return False
+
+
+def _entry_line_has_path_traversal(entry: dict) -> bool:
+    params = entry.get("query_params") or {}
+    payload = entry.get("payload") or {}
+    for v in {**params, **payload}.values():
+        raw = str(v)
+        if TRAVERSAL_REGEX.search(_normalize_for_detection(raw)):
+            return True
+        if TRAVERSAL_REGEX.search(raw):
+            return True
+    return False
+
+
+def _seed_fingerprints_for_new_blocks(
+    state: SystemState, logs: list, findings: list
+) -> None:
+    """
+    Store a behavioral fingerprint for blocked IPs that did not already get one
+    via fingerprint_and_block (cold start for IP-rotation rule).
+
+    NOTE: STATE_LOCK must not be held by the caller — it is acquired here.
+    threading.Lock is not reentrant; wrapping blue_node (or this helper) in an
+    outer ``with STATE_LOCK`` would deadlock. apply_mitigations releases the lock
+    before this runs, so the current blue_node sequence is safe.
+    """
+    from backend.main import STATE_LOCK
+
+    with STATE_LOCK:
+        existing = {
+            fp.get("ip")
+            for fp in state.get("behavioral_fingerprints", [])
+            if isinstance(fp, dict)
+        }
+        for f in findings:
+            if f.get("recommended_action") == "fingerprint_and_block":
+                continue
+            if f.get("recommended_action") not in ("block_ip", "block_and_patch"):
+                continue
+            ip = f.get("source_ip") or ""
+            if not ip or ip in existing:
+                continue
+            sig = _build_behavioral_signature(ip, logs)
+            if sig:
+                state.setdefault("behavioral_fingerprints", []).append(sig)
+                existing.add(ip)
+
 
 def read_recent_logs(filepath: str, window_s: float, max_lines: int) -> list:
     try:
@@ -26,6 +89,7 @@ def read_recent_logs(filepath: str, window_s: float, max_lines: int) -> list:
         except json.JSONDecodeError:
             continue
     return entries
+
 
 def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
     base = {k: 0.0 for k in [
@@ -106,19 +170,16 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
             except (ValueError, TypeError):
                 pass
 
-        all_values = " ".join(str(v) for v in {**params, **payload}.values())
-        if SQLI_REGEX.search(all_values):
+        if _entry_line_has_sqli_raw(entry):
             sqli_count += 1.0
-        if TRAVERSAL_REGEX.search(all_values):
+        if _entry_line_has_path_traversal(entry):
             path_trav_count += 1.0
         content_len = float(entry.get("content_length", 0) or 0)
         if content_len <= 0:
-            # Middleware may omit content_length until body logging is implemented
             content_len = float(len(str(params)) + len(str(payload)))
         if content_len > 1024:
             large_payload += 1.0
 
-    # IDOR sequential check
     seq_ids = 0.0
     for ip, ids in idor_ids.items():
         if len(ids) >= 3:
@@ -166,6 +227,7 @@ def blue_node(state: SystemState) -> dict:
     obs = build_raw_observation(logs, state)
     findings = run_anomaly_detection(obs, logs, state)
     last_defense = apply_mitigations(findings, state)
+    _seed_fingerprints_for_new_blocks(state, logs, findings)
     return {
         "raw_observation": obs,
         "last_defense": last_defense,
