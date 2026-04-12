@@ -11,3 +11,6 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 .cursorrules
+
+# Windows ADS-style names; colon breaks Windows Git checkouts
+*Zone.Identifier
