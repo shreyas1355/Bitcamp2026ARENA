@@ -34,7 +34,7 @@
       "CWE-284",
       "token_validation"
     ],
-    "content": "Improper Access Control \u00e2\u20ac\u201d Weak Token Validation: Never use substring matching for authorization checks (e.g. 'admin' in token). Use cryptographic token validation: JWT with signature verification, or lookup against a server-side session store. Implement proper RBAC with explicit role checks. Tokens must be unpredictable (use secrets.token_hex(32) minimum)."
+    "content": "Improper Access Control \u2014 Weak Token Validation: Never use substring matching for authorization checks (e.g. 'admin' in token). Use cryptographic token validation: JWT with signature verification, or lookup against a server-side session store. Implement proper RBAC with explicit role checks. Tokens must be unpredictable (use secrets.token_hex(32) minimum)."
   },
   {
     "id": "KB005",
@@ -44,7 +44,7 @@
       "CWE-307",
       "credential_stuffing"
     ],
-    "content": "Improper Restriction of Authentication Attempts: Implement rate limiting (max 5 failed attempts per IP per minute), account lockout after N consecutive failures with exponential backoff, CAPTCHA for repeated failures. Always use constant-time password comparison to prevent timing attacks. Return identical generic error messages for all authentication failures ('Authentication failed' \u00e2\u20ac\u201d never disclose whether username exists)."
+    "content": "Improper Restriction of Authentication Attempts: Implement rate limiting (max 5 failed attempts per IP per minute), account lockout after N consecutive failures with exponential backoff, CAPTCHA for repeated failures. Always use constant-time password comparison to prevent timing attacks. Return identical generic error messages for all authentication failures ('Authentication failed' \u2014 never disclose whether username exists)."
   },
   {
     "id": "KB006",
@@ -73,7 +73,7 @@
       "CWE-208",
       "username_enumeration"
     ],
-    "content": "Observable Timing Discrepancy: Use constant-time comparison for all authentication checks (hmac.compare_digest). Always execute the full authentication pipeline (including password hashing) even for nonexistent users \u00e2\u20ac\u201d use a dummy hash. Return identical error messages and aim for identical response times regardless of which part of authentication failed. Detection: measure response time variance across many login attempts with different usernames."
+    "content": "Observable Timing Discrepancy: Use constant-time comparison for all authentication checks (hmac.compare_digest). Always execute the full authentication pipeline (including password hashing) even for nonexistent users \u2014 use a dummy hash. Return identical error messages and aim for identical response times regardless of which part of authentication failed. Detection: measure response time variance across many login attempts with different usernames."
   },
   {
     "id": "KB009",
@@ -83,7 +83,7 @@
       "detection_bypass",
       "CWE-89"
     ],
-    "content": "Double URL-encoding bypasses naive SQLi regex detection. The sequence ' \u00e2\u2020\u2019 %27 \u00e2\u2020\u2019 %2527 produces a payload that looks benign to string matching but decodes to a SQL injection character after server-side URL normalization. Always apply urllib.parse.unquote() iteratively (up to 3 times) before applying SQLi signature detection. This variant was discovered autonomously by the LLM red team in episode 3."
+    "content": "Double URL-encoding bypasses naive SQLi regex detection. The sequence ' \u2192 %27 \u2192 %2527 produces a payload that looks benign to string matching but decodes to a SQL injection character after server-side URL normalization. Always apply urllib.parse.unquote() iteratively (up to 3 times) before applying SQLi signature detection. This variant was discovered autonomously by the LLM red team in episode 3."
   },
   {
     "id": "KB_RUNTIME_BEHAVIORAL",
