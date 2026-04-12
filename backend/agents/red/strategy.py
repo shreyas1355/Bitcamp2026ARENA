@@ -202,7 +202,7 @@ def _normalize_decision(raw: Dict[str, Any]) -> LLMDecision:
     """Merges LLM JSON with safe defaults so every LLMDecision field exists."""
     base: Dict[str, Any] = {
         "technique": "recon",
-        "target_endpoint": "/",
+        "target_endpoint": "/login",
         "method": "GET",
         "params": {},
         "headers": {},
@@ -217,6 +217,12 @@ def _normalize_decision(raw: Dict[str, Any]) -> LLMDecision:
         base["headers"] = {}
     if not isinstance(base["payload"], dict):
         base["payload"] = {}
+    # Ollama may emit null; .get("target_endpoint", "/") does not apply when key is present with None.
+    te = base.get("target_endpoint")
+    if te is None or (isinstance(te, str) and not te.strip()):
+        base["target_endpoint"] = "/login"
+    elif not isinstance(te, str):
+        base["target_endpoint"] = str(te).strip() or "/login"
     return base  # type: ignore[return-value]
 
 
