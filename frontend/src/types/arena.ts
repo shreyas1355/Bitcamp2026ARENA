@@ -51,6 +51,11 @@ export interface SupervisorReport {
   token_count: number
 }
 
+export interface PruneRemovedEntry {
+  attribute: string
+  delta_h: number
+}
+
 /** GET /state */
 export interface StateSnapshot {
   episode: number
@@ -66,6 +71,7 @@ export interface StateSnapshot {
   current_attack_layer: number
   patch_records: PatchRecord[]
   llm_decision: LLMDecision | null
+  last_prune_removed?: PruneRemovedEntry[]
 }
 
 export interface StepUpdateMessage {
@@ -79,6 +85,24 @@ export interface StepUpdateMessage {
   active_mitigations: Record<string, boolean>
   vulnerabilities_found: unknown[]
   llm_decision: LLMDecision | null
+  current_attack_layer?: number
+  patch_records?: PatchRecord[]
+  last_prune_removed?: PruneRemovedEntry[]
+}
+
+/** One captured frame for episode replay / graph / drill-down. */
+export interface StepFrame {
+  episode: number
+  step: number
+  risk_score: number
+  risk_history: number[]
+  last_attack: AttackEvent | null
+  last_defense: DefenseEvent | null
+  active_mitigations: Record<string, boolean>
+  vulnerabilities_found: unknown[]
+  llm_decision: LLMDecision | null
+  current_attack_layer: number
+  last_prune_removed?: PruneRemovedEntry[]
 }
 
 export interface EpisodeReportMessage {

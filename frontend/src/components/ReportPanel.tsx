@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { EpisodeReportMessage, PatchRecord, PatchSummaryMessage, SupervisorReport } from '../types/arena'
+import { PatchVerificationTable } from './PatchVerificationTable'
 
 type Tab = 'supervisor' | 'patches'
 
@@ -23,15 +24,15 @@ export function ReportPanel({
     (supervisorReport as unknown as Record<string, unknown> | null)
 
   return (
-    <section className="rounded-lg border border-arena-border bg-arena-surface p-4 text-left">
+    <section className="rounded-lg border border-arena-border bg-arena-surface p-4 text-left shadow-sm">
       <div className="mb-4 flex gap-2 border-b border-arena-border pb-2">
         <button
           type="button"
           onClick={() => setTab('supervisor')}
-          className={`rounded px-3 py-1 text-sm font-medium ${
+          className={`rounded border px-3 py-1 text-sm font-medium ${
             tab === 'supervisor'
-              ? 'bg-arena-blue/20 text-arena-blue'
-              : 'text-arena-muted hover:text-arena-text'
+              ? 'border-arena-accent bg-arena-blue-soft text-arena-accent'
+              : 'border-transparent text-arena-muted hover:bg-arena-muted-bg'
           }`}
         >
           Supervisor
@@ -39,15 +40,15 @@ export function ReportPanel({
         <button
           type="button"
           onClick={() => setTab('patches')}
-          className={`rounded px-3 py-1 text-sm font-medium ${
+          className={`rounded border px-3 py-1 text-sm font-medium ${
             tab === 'patches'
-              ? 'bg-arena-blue/20 text-arena-blue'
-              : 'text-arena-muted hover:text-arena-text'
+              ? 'border-arena-accent bg-arena-blue-soft text-arena-accent'
+              : 'border-transparent text-arena-muted hover:bg-arena-muted-bg'
           }`}
         >
           Patches
           {patchRecords.length > 0 && (
-            <span className="ml-1 text-xs opacity-80">({patchRecords.length})</span>
+            <span className="ml-1 font-mono-telemetry text-xs opacity-80">({patchRecords.length})</span>
           )}
         </button>
       </div>
@@ -57,20 +58,75 @@ export function ReportPanel({
           {!report ? (
             <p className="text-arena-muted">No supervisor report yet (wait for end of episode).</p>
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-arena-text">
-              {JSON.stringify(report, null, 2)}
-            </pre>
+            <SupervisorReadable report={report} />
           )}
         </div>
       )}
 
       {tab === 'patches' && (
-        <PatchesTab
-          patchRecords={patchRecords}
-          lastPatchSummary={lastPatchSummary}
-        />
+        <PatchesTab patchRecords={patchRecords} lastPatchSummary={lastPatchSummary} />
       )}
     </section>
+  )
+}
+
+function SupervisorReadable({ report }: { report: Record<string, unknown> }) {
+  const risk = report.risk_score
+  const summary = typeof report.episode_summary === 'string' ? report.episode_summary : null
+  const strategy =
+    typeof report.next_episode_strategy === 'string' ? report.next_episode_strategy : null
+  const mitigations = Array.isArray(report.mitigations) ? report.mitigations : []
+  const vulns = Array.isArray(report.vulnerabilities) ? report.vulnerabilities : []
+
+  return (
+    <div className="space-y-4 text-arena-text">
+      {typeof risk === 'number' && (
+        <p>
+          <span className="font-semibold text-arena-muted">Risk score:</span>{' '}
+          <span className="font-mono-telemetry">{risk.toFixed(3)}</span>
+        </p>
+      )}
+      {summary && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Episode summary</p>
+          <p className="mt-1 leading-relaxed">{summary}</p>
+        </div>
+      )}
+      {strategy && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Next episode strategy</p>
+          <p className="mt-1 leading-relaxed">{strategy}</p>
+        </div>
+      )}
+      {mitigations.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Mitigations</p>
+          <ul className="mt-1 list-inside list-disc text-arena-text">
+            {mitigations.map((m, i) => (
+              <li key={i}>{String(m)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {vulns.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Vulnerabilities (report)</p>
+          <ul className="mt-2 space-y-2">
+            {vulns.map((v, i) => (
+              <li key={i} className="rounded border border-arena-border bg-arena-bg p-2 font-mono-telemetry text-xs">
+                {typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <details className="text-xs">
+        <summary className="cursor-pointer text-arena-accent hover:underline">Raw JSON</summary>
+        <pre className="mt-2 max-h-48 overflow-auto rounded border border-arena-border bg-arena-bg p-2 font-mono-telemetry text-[11px]">
+          {JSON.stringify(report, null, 2)}
+        </pre>
+      </details>
+    </div>
   )
 }
 
@@ -82,57 +138,30 @@ function PatchesTab({
   lastPatchSummary: PatchSummaryMessage | null
 }) {
   return (
-    <div className="max-h-[28rem] space-y-4 overflow-y-auto">
+    <div className="space-y-4">
       {lastPatchSummary && lastPatchSummary.patches.length > 0 && (
         <p className="text-xs text-arena-muted">
           Latest broadcast: episode {lastPatchSummary.episode} ({lastPatchSummary.patches.length}{' '}
           patch attempt(s))
         </p>
       )}
-      {patchRecords.length === 0 ? (
-        <p className="text-sm text-arena-muted">
-          No patch records yet. After an episode ends, verified patches appear here (with code from
-          /state).
-        </p>
-      ) : (
-        <ul className="space-y-4">
-          {[...patchRecords].reverse().map((p, idx) => (
-            <li
-              key={`${p.endpoint}-${p.vulnerability_name}-${idx}`}
-              className="rounded-lg border border-arena-border bg-arena-bg/40 p-3"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-medium text-arena-text">{p.vulnerability_name}</h3>
-                <span
-                  className={`rounded px-2 py-0.5 text-xs font-medium ${
-                    p.verified
-                      ? 'bg-arena-green/20 text-arena-green'
-                      : 'bg-arena-red/20 text-arena-red'
-                  }`}
-                >
-                  {p.verified ? '✓ Verified' : '✗ Failed / review'}
-                </span>
-                {p.requires_human_review && (
-                  <span className="rounded bg-arena-orange/20 px-2 py-0.5 text-xs text-arena-orange">
-                    Requires human review
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 font-mono text-xs text-arena-muted">
-                {p.cwe} · {p.endpoint}
-              </p>
-              <p className="mt-2 text-xs text-arena-text">{p.verification_evidence}</p>
-              {p.patch_code ? (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-arena-blue">Generated patch code</summary>
-                  <pre className="mt-2 max-h-48 overflow-auto rounded bg-arena-bg p-2 font-mono text-[11px] text-arena-text">
-                    {p.patch_code}
-                  </pre>
-                </details>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+      <PatchVerificationTable records={patchRecords} />
+      {patchRecords.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-arena-muted">Generated code</p>
+          {[...patchRecords].reverse().map((p, idx) =>
+            p.patch_code ? (
+              <details key={`code-${idx}`} className="rounded border border-arena-border bg-arena-bg">
+                <summary className="cursor-pointer px-2 py-1.5 text-xs text-arena-accent hover:underline">
+                  {p.vulnerability_name} — {p.endpoint}
+                </summary>
+                <pre className="max-h-48 overflow-auto border-t border-arena-border p-2 font-mono-telemetry text-[11px] text-arena-text">
+                  {p.patch_code}
+                </pre>
+              </details>
+            ) : null,
+          )}
+        </div>
       )}
     </div>
   )

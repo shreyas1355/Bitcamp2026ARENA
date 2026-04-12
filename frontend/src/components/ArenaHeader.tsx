@@ -1,26 +1,40 @@
+import { MAX_STEPS_PER_EPISODE } from '../constants/arena'
+
 interface Props {
   episode: number
   step: number
-  attackLayer: number
   wsConnected: boolean
+  viewEpisode: number | 'live'
 }
 
-export function ArenaHeader({ episode, step, attackLayer, wsConnected }: Props) {
+export function ArenaHeader({
+  episode,
+  step,
+  wsConnected,
+  viewEpisode,
+}: Props) {
+  const viewing =
+    viewEpisode === 'live' ? null : (
+      <span className="ml-2 rounded border border-arena-orange/40 bg-arena-orange/10 px-2 py-0.5 text-xs font-medium text-arena-orange">
+        Viewing episode {viewEpisode} (buffered)
+      </span>
+    )
+
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-arena-border pb-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-arena-text">
-          ACDA — Autonomous Cyber Defense Arena
-        </h1>
-        <p className="text-sm text-arena-muted">
-          Episode {episode} · Step {step} · Attack layer {attackLayer}
+        <h1 className="font-serif text-2xl font-semibold tracking-tight text-arena-text">arena</h1>
+        <p className="mt-1 text-sm text-arena-muted">
+          Autonomous attack, defense, and verified patching — Episode {episode} · Step {step} /{' '}
+          {MAX_STEPS_PER_EPISODE}
+          {viewing}
         </p>
       </div>
       <div
-        className={`rounded-full px-3 py-1 text-xs font-medium ${
+        className={`rounded-full border px-3 py-1 text-xs font-medium ${
           wsConnected
-            ? 'bg-arena-green/20 text-arena-green'
-            : 'bg-arena-red/20 text-arena-red'
+            ? 'border-arena-green/40 bg-arena-green-soft text-arena-green'
+            : 'border-arena-red/40 bg-arena-red-soft text-arena-red'
         }`}
         title="WebSocket /ws"
       >

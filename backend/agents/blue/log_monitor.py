@@ -82,7 +82,9 @@ def read_recent_logs(
     episode N-1 attack evidence from bleeding into episode N's anomaly rules.
     """
     try:
-        with open(filepath, "r") as f:
+        # errors="replace" keeps the arena running if logs.jsonl was saved as UTF-16
+        # or corrupted; bad lines are skipped below as JSON errors.
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[-max_lines:]
     except FileNotFoundError:
         return []

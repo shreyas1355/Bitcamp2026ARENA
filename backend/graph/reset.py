@@ -73,6 +73,7 @@ def reset_node(state: SystemState) -> dict:
         "current_findings":      [],
         "raw_observation":       {},
         "pruned_observation":    {},
+        "last_prune_removed":    [],
         "retrieved_similar_step": None,
         "prior_recommendation":  "none",
         # V2: reset per-episode LLM fields
