@@ -55,4 +55,4 @@ See `PROMPT.md` for the complete implementation specification.
 
 ## Team
 
-Built at [Hackathon Name] by [Team Name].
+Built at Bitcamp 2026 by Runtime Errors.
