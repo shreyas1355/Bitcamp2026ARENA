@@ -99,6 +99,11 @@ def _append_behavioral_fingerprint(state: SystemState, evidence: Dict[str, Any])
         state.setdefault("behavioral_fingerprints", []).append(fp)
 
 
+def _ensure_deep_logging_ips(state: SystemState) -> List[str]:
+    """IPs flagged by deep_log_attacker; middleware reads SYSTEM_STATE['deep_logging_ips']."""
+    return state.setdefault("deep_logging_ips", [])
+
+
 def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[dict]:
     rule_id = finding.get("rule_id", "")
     action = finding.get("recommended_action", "")
@@ -138,7 +143,10 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
         return _defense_event("alert_only", rule_id, src_ip, target_ep, ts)
 
     if action == "deep_log_attacker":
-        # Verbose HTTP logging would require middleware + state outside agents/blue.
+        if src_ip:
+            dl = _ensure_deep_logging_ips(state)
+            if src_ip not in dl:
+                dl.append(src_ip)
         return _defense_event("alert_only", rule_id, src_ip, target_ep, ts)
 
     if action == "rate_limit":
@@ -184,6 +192,7 @@ def apply_mitigations(findings: List[Finding], state: SystemState) -> dict:
     with STATE_LOCK:
         state.setdefault("behavioral_fingerprints", [])
         state.setdefault("ioc_exports", [])
+        _ensure_deep_logging_ips(state)
 
         for idx, finding in enumerate(findings):
             event = _apply_finding(finding, state, ts)
