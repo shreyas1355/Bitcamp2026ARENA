@@ -45,13 +45,28 @@ def _compute_risk(state: SystemState) -> float:
     score = old_score * RISK_DECAY
 
     # Add weight for each finding this step.
-    # Skip findings whose source IP is already blocked — those threats are handled;
-    # re-counting them every step while they remain in the 60-second log window
-    # would prevent risk from ever decaying after a successful block.
+    # Skip findings from blocked IPs — those threats are handled and
+    # re-counting them while they linger in the 60-second log window
+    # would prevent risk from decaying after a successful block.
     blocked_set = set(state.get("blocked_ips") or [])
+
+    # Determine whether every IP-attributed finding in this step comes from
+    # a blocked IP. If so, any endpoint-level findings (source_ip="") are also
+    # triggered by that same blocked traffic — skip them too.
+    attributed_ips = {
+        f.get("source_ip", "")
+        for f in state.get("current_findings", [])
+        if f.get("source_ip")
+    }
+    all_attributed_blocked = bool(attributed_ips) and attributed_ips.issubset(blocked_set)
+
     for finding in state.get("current_findings", []):
         src_ip = finding.get("source_ip") or ""
         if src_ip and src_ip in blocked_set:
+            continue
+        if not src_ip and all_attributed_blocked:
+            # Endpoint-level rule (no source_ip), but all named IPs this step
+            # are blocked — the finding is driven by stale blocked-IP traffic.
             continue
         severity = finding.get("severity", "info")
         score += RISK_SEVERITY_WEIGHTS.get(severity, 0.0)

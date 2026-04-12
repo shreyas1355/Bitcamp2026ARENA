@@ -113,10 +113,16 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
     src_ip = finding.get("source_ip") or ""
     target_ep = finding.get("target_endpoint") or ""
 
-    if action == "block_and_patch" and rule_id == "RULE_TIME_BASED_SQLI":
-        if src_ip and src_ip not in state["blocked_ips"]:
+    if action == "block_and_patch":
+        # Covers RULE_TIME_BASED_SQLI, RULE_SQLI_SIGNATURE, RULE_SQLI_ENCODED
+        already_blocked = not src_ip or src_ip in state["blocked_ips"]
+        already_patched = state["active_mitigations"].get("proper_auth", False)
+        if already_blocked and already_patched:
+            return None   # both already applied — suppress duplicate event
+        if src_ip and not already_blocked:
             state["blocked_ips"].append(src_ip)
-        state["active_mitigations"]["proper_auth"] = True
+        if not already_patched:
+            state["active_mitigations"]["proper_auth"] = True
         return _defense_event(
             "patch_endpoint",
             rule_id,
@@ -158,6 +164,8 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
         limit = RATE_LIMIT_MAP.get(rule_id, RATE_LIMIT_LOGIN_HIGH)
         raw = target_ep or "/target/login"
         ep = _rate_limit_endpoint_key(raw)
+        if ep in state["rate_limited_endpoints"]:
+            return None   # already rate-limited — suppress duplicate event
         state["rate_limited_endpoints"][ep] = limit
         if ep == "/login" or "/login" in raw:
             state["active_mitigations"]["rate_limit_login"] = True
@@ -165,6 +173,8 @@ def _apply_finding(finding: Finding, state: SystemState, ts: float) -> Optional[
 
     if action == "patch_endpoint":
         flag = PATCH_MAP.get(rule_id)
+        if flag and state["active_mitigations"].get(flag):
+            return None   # already patched — suppress duplicate event
         if flag:
             state["active_mitigations"][flag] = True
         return _defense_event("patch_endpoint", rule_id, "", target_ep, ts)

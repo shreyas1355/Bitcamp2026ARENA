@@ -70,13 +70,23 @@ def _seed_fingerprints_for_new_blocks(
                 existing.add(ip)
 
 
-def read_recent_logs(filepath: str, window_s: float, max_lines: int) -> list:
+def read_recent_logs(
+    filepath: str,
+    window_s: float,
+    max_lines: int,
+    min_timestamp: float = 0.0,
+) -> list:
+    """
+    Returns log entries from the last `window_s` seconds, but never older
+    than `min_timestamp` (episode start time).  Passing min_timestamp prevents
+    episode N-1 attack evidence from bleeding into episode N's anomaly rules.
+    """
     try:
         with open(filepath, "r") as f:
             lines = f.readlines()[-max_lines:]
     except FileNotFoundError:
         return []
-    cutoff = time.time() - window_s
+    cutoff = max(time.time() - window_s, min_timestamp)
     entries = []
     for line in lines:
         line = line.strip()
@@ -153,7 +163,9 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
                 base[key] += 1.0
 
         if "/login" in path:
-            if status in (401, 403):
+            if status == 401:
+                # 401 = wrong credentials (genuine failed login attempt)
+                # 403 = blocked IP — not a failed auth attempt, don't count it
                 failed_logins += 1
             elif status == 200:
                 successful_logins += 1
@@ -161,7 +173,8 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
             if u:
                 usernames.add(u)
 
-        if "/admin" in path and status in (401, 403):
+        if "/admin" in path and status == 401:
+            # 403 on /admin = blocked IP or access denied, not an active probe
             admin_probes += 1
 
         if "/data" in path and "id" in params:
@@ -223,7 +236,8 @@ def build_raw_observation(recent_logs: list, state: SystemState = None) -> dict:
 
 
 def blue_node(state: SystemState) -> dict:
-    logs = read_recent_logs(LOG_FILE, LOG_WINDOW_SECONDS, MAX_LOG_LINES)
+    episode_start = state.get("episode_start_time", 0.0)
+    logs = read_recent_logs(LOG_FILE, LOG_WINDOW_SECONDS, MAX_LOG_LINES, min_timestamp=episode_start)
     obs = build_raw_observation(logs, state)
     findings = run_anomaly_detection(obs, logs, state)
     last_defense = apply_mitigations(findings, state)

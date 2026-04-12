@@ -95,6 +95,7 @@ class SystemState(TypedDict):
     episode: int
     step: int
     max_steps: int
+    episode_start_time: float   # unix timestamp of episode start — used to filter old logs
 
     # ── Current step events ────────────────────────────────────────────────────
     last_attack: Optional[AttackEvent]
@@ -175,10 +176,12 @@ def get_initial_state(
         episode_pool:   loaded from data/episode_pool.json (or [] if not exists)
         max_steps:      from config.MAX_STEPS
     """
+    import time as _time
     return SystemState(
         episode=1,
         step=0,
         max_steps=max_steps,
+        episode_start_time=_time.time(),
 
         last_attack=None,
         last_defense=None,

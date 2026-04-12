@@ -49,7 +49,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/target"):
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        # Intentional vulnerability (CWE-346): trust X-Forwarded-For from client.
+        # This lets the red team bypass IP blocks via header_injection.
+        # The blue team can detect the spoofed header pattern and alert on it.
+        xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        real_ip = request.client.host if request.client else "unknown"
+        client_ip = xff if xff else real_ip
         path = request.url.path
         user_agent = request.headers.get("user-agent", "")
         start_time = time.time()
@@ -72,6 +77,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     blocked=True,
                     deep_logging=is_deep,
                     user_agent=user_agent,
+                    payload={},
+                    x_forwarded_for=xff,
+                    real_ip=real_ip,
                 )
                 return Response("Forbidden", status_code=403)
         except ImportError:
@@ -104,6 +112,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                         rate_limited=True,
                         deep_logging=is_deep,
                         user_agent=user_agent,
+                        payload={},
+                        x_forwarded_for=xff,
+                        real_ip=real_ip,
                     )
                     return Response(
                         "Too Many Requests",
@@ -114,16 +125,19 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         except ImportError:
             pass  # SYSTEM_STATE not available during early startup
 
-        # ── Capture request body hash before passing to route handler ─────────
+        # ── Capture request body before passing to route handler ─────────────
         body_hash = ""
-        payload_preview = ""
+        payload_dict: dict = {}
         body_bytes = b""
         try:
             body_bytes = await request.body()
             if body_bytes:
                 body_hash = hashlib.sha256(body_bytes).hexdigest()
-            if is_deep and body_bytes:
-                payload_preview = body_bytes[:4096].decode("utf-8", errors="replace")
+                # Always parse JSON body so anomaly rules can inspect field values
+                # (SQLi/traversal patterns live in POST bodies, not query params)
+                parsed = json.loads(body_bytes)
+                if isinstance(parsed, dict):
+                    payload_dict = parsed
         except Exception:
             pass
 
@@ -138,10 +152,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             status_code=response.status_code,
             response_time_ms=elapsed_ms,
             query_params=dict(request.query_params),
+            payload=payload_dict,
             body_hash=body_hash,
             deep_logging=is_deep,
-            payload_preview=payload_preview,
             user_agent=user_agent,
+            x_forwarded_for=xff,
+            real_ip=real_ip,
         )
 
         return response
@@ -156,16 +172,19 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         query_params: dict,
         blocked: bool = False,
         rate_limited: bool = False,
+        payload: dict | None = None,
         body_hash: str = "",
         deep_logging: bool = False,
-        payload_preview: str = "",
         user_agent: str = "",
+        x_forwarded_for: str = "",
+        real_ip: str = "",
     ) -> None:
         """
         Appends one JSON line to LOG_FILE.
 
-        When deep_logging is True, entry includes payload_preview (body) when read.
-        user_agent is always logged — required by behavioral fingerprinting in anomaly_detector.
+        `payload` is the parsed JSON request body (always present for POST/PUT/PATCH).
+        Anomaly rules read entry["payload"] to detect SQLi/traversal in POST bodies.
+        user_agent is always logged — required by behavioral fingerprinting.
         """
         entry = {
             "timestamp":             time.time(),
@@ -175,15 +194,16 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             "status_code":           status_code,
             "response_time_ms":      round(response_time_ms, 2),
             "query_params":          query_params,
+            "payload":               payload or {},
             "blocked_by_middleware": blocked,
             "rate_limited":          rate_limited,
             "body_hash":             body_hash,
             "user_agent":            user_agent,
+            "x_forwarded_for":       x_forwarded_for,
+            "real_ip":               real_ip,
         }
         if deep_logging:
             entry["deep_logging"] = True
-        if payload_preview:
-            entry["payload_preview"] = payload_preview
         try:
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps(entry) + "\n")

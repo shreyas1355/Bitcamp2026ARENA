@@ -146,8 +146,22 @@ def rule_sqli_signature(
     state: SystemState,
     flagged_ips: Optional[Set[str]] = None,
 ) -> Optional[Finding]:
+    """
+    Two-stage escalation:
+      Stage 1 (proper_auth not yet set): patch the vulnerability only.
+              Red team is still free to attack — but SQLi now fails at the handler.
+      Stage 2 (proper_auth already True but SQLi still detected): the attacker
+              bypassed the patch (e.g. via header_injection). Escalate to block+patch.
+
+    This gives the red team at least one step of "interesting failure" before the
+    IP block shuts everything down, making the demo more dynamic.
+    """
     if obs.get("sqli_patterns_detected", 0) <= 0:
         return None
+
+    already_patched = state.get("active_mitigations", {}).get("proper_auth", False)
+    action = "block_and_patch" if already_patched else "patch_endpoint"
+
     for entry in logs:
         for raw in _iter_param_values(entry):
             if SQLI_REGEX.search(raw):
@@ -157,7 +171,7 @@ def rule_sqli_signature(
                     entry.get("ip", ""),
                     entry.get("path", ""),
                     {"matched": "query_params/payload", "path": entry.get("path")},
-                    "block_ip",
+                    action,
                 )
     return _finding(
         "RULE_SQLI_SIGNATURE",
@@ -165,7 +179,7 @@ def rule_sqli_signature(
         "",
         "",
         {"reason": "sqli_patterns_detected>0 but no log line matched"},
-        "block_ip",
+        action,
     )
 
 
@@ -451,6 +465,14 @@ def rule_anomalous_success_rate(
     state: SystemState,
     flagged_ips: Optional[Set[str]] = None,
 ) -> Optional[Finding]:
+    """
+    Fires when one IP has an unusually high number of successful (200) responses
+    with no failed login attempts — indicates auth bypass, not legitimate traffic.
+
+    Escalation:
+      > ANOMALY_SUCCESS_RATE_THRESHOLD (3)  → deep_log_attacker (alert + log)
+      > 5 × threshold (15)                  → block_ip (decisive action)
+    """
     if flagged_ips is None:
         flagged_ips = set()
     if obs.get("rate_401", 0) >= 0.1:
@@ -464,13 +486,16 @@ def rule_anomalous_success_rate(
         if ip in blocked or ip in flagged_ips:
             continue
         if n > ANOMALY_SUCCESS_RATE_THRESHOLD:
+            # After enough successes, escalate from logging to blocking
+            action = "block_ip" if n > ANOMALY_SUCCESS_RATE_THRESHOLD * 5 else "deep_log_attacker"
+            severity = "high" if action == "block_ip" else "medium"
             return _finding(
                 "RULE_ANOMALOUS_SUCCESS_RATE",
-                "medium",
+                severity,
                 ip,
                 "",
                 {"http_200_count": n, "threshold": ANOMALY_SUCCESS_RATE_THRESHOLD},
-                "deep_log_attacker",
+                action,
             )
     return None
 
@@ -515,6 +540,43 @@ def rule_large_get_payload(
     )
 
 
+def rule_xff_spoofing(
+    obs: dict,
+    logs: list,
+    state: SystemState,
+    flagged_ips: Optional[Set[str]] = None,
+) -> Optional[Finding]:
+    """
+    Detects X-Forwarded-For header spoofing used to bypass IP blocks.
+
+    Fires when: a request arrives with an XFF header whose claimed IP differs
+    from entries in blocked_ips (i.e. the real source is blocked but the
+    request used a forged header to slip through).
+
+    Action: block_ip on the spoofed/claimed IP so that IP is also blocked.
+    """
+    blocked = set(state.get("blocked_ips") or [])
+    if not blocked:
+        return None
+    for entry in logs:
+        xff = entry.get("x_forwarded_for", "")
+        real_ip = entry.get("real_ip", entry.get("ip", ""))
+        if not xff:
+            continue
+        # If the XFF-claimed IP differs from the real connection IP and either
+        # one is in the blocked set, this is a spoofing attempt
+        if xff != real_ip and (real_ip in blocked or xff in blocked):
+            return _finding(
+                "RULE_XFF_SPOOFING",
+                "high",
+                xff,
+                entry.get("path", ""),
+                {"xff_claimed": xff, "real_ip": real_ip},
+                "block_ip",
+            )
+    return None
+
+
 # All rules except the catch-all; run rule_anomalous_success_rate last so flagged_ips
 # includes every other rule's source_ip in this step (including recon / large payload).
 PIPELINE_BEFORE_ANOMALOUS = [
@@ -531,6 +593,7 @@ PIPELINE_BEFORE_ANOMALOUS = [
     rule_endpoint_flood,
     rule_ip_recon_sweep,
     rule_large_get_payload,
+    rule_xff_spoofing,
 ]
 
 # Full logical order (anomalous_success last). run_anomaly_detection implements this by

@@ -42,6 +42,37 @@ from backend.state import PatchRecord, SystemState
 from backend.ws.broadcaster import broadcast_patch_summary
 
 
+# ── Original source cache ──────────────────────────────────────────────────────
+# Populated lazily on first use (before any patching occurs in episode 1).
+# After exec()+route swap, inspect.getsource fails on dynamically-created
+# functions.  We cache the *original* source so episode 2+ patches can still
+# retrieve it without a source-file lookup.
+_ORIGINAL_SOURCE_CACHE: dict[str, str] = {}
+
+
+def _populate_source_cache() -> None:
+    """
+    Walk target_router routes and populate _ORIGINAL_SOURCE_CACHE keyed by
+    the normalized path (e.g. '/login').  Called once on first episode.
+    Only caches routes that have not yet been dynamically replaced.
+    """
+    try:
+        from backend.target.router import target_router
+        for route in target_router.routes:
+            if not hasattr(route, "path") or not hasattr(route, "endpoint"):
+                continue
+            path = route.path
+            if path in _ORIGINAL_SOURCE_CACHE:
+                continue  # already cached; do not overwrite with patched version
+            try:
+                src = inspect.getsource(route.endpoint)
+                _ORIGINAL_SOURCE_CACHE[path] = src
+            except (OSError, TypeError):
+                pass  # dynamic function or C extension — skip
+    except Exception as e:
+        print(f"[PATCH] Source cache population failed: {e}")
+
+
 # ── Gemini prompts ─────────────────────────────────────────────────────────────
 
 PATCH_SYSTEM_PROMPT = """You are a security engineer generating minimal, targeted Python patches.
@@ -81,6 +112,11 @@ def patch_node(state: SystemState) -> dict:
 
     Returns updated patch_records and active_mitigations.
     """
+    # Populate source cache before any patches are applied this episode.
+    # This is a no-op after the first call — the cache is never cleared.
+    if not _ORIGINAL_SOURCE_CACHE:
+        _populate_source_cache()
+
     report = state.get("supervisor_report")
     if not report:
         return {"patch_records": state.get("patch_records", [])}
@@ -177,22 +213,45 @@ def _get_endpoint_source(endpoint: str) -> Optional[str]:
     """
     Returns the Python source of the FastAPI route handler for endpoint.
     Handles both '/login' and '/target/login' forms.
+
+    Uses _ORIGINAL_SOURCE_CACHE (populated before any patching) so that
+    episode 2+ calls succeed even after route.endpoint has been replaced by
+    an exec()-created function that has no source file on disk.
     """
+    path = _normalize_path(endpoint)
+
+    # Ensure cache is populated (safe to call repeatedly — no-op if already done)
+    if not _ORIGINAL_SOURCE_CACHE:
+        _populate_source_cache()
+
+    # Cache hit — return original source regardless of current route state
+    if path in _ORIGINAL_SOURCE_CACHE:
+        return _ORIGINAL_SOURCE_CACHE[path]
+
+    # Cache miss (should only happen for unusual endpoints): fall back to inspect
     try:
         from backend.target.router import target_router
-
-        path = _normalize_path(endpoint)
 
         # Primary: match by route path
         for route in target_router.routes:
             if hasattr(route, "path") and route.path == path:
-                return inspect.getsource(route.endpoint)
+                try:
+                    src = inspect.getsource(route.endpoint)
+                    _ORIGINAL_SOURCE_CACHE[path] = src  # cache for future episodes
+                    return src
+                except (OSError, TypeError):
+                    pass
 
         # Fallback: match by function name derived from path
         func_name = path.strip("/").replace("-", "_")
         for route in target_router.routes:
             if hasattr(route, "endpoint") and route.endpoint.__name__ == func_name:
-                return inspect.getsource(route.endpoint)
+                try:
+                    src = inspect.getsource(route.endpoint)
+                    _ORIGINAL_SOURCE_CACHE[path] = src
+                    return src
+                except (OSError, TypeError):
+                    pass
 
         print(f"[PATCH] No route found for path '{path}'")
         return None

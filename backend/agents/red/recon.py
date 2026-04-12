@@ -15,6 +15,8 @@ import httpx
 from backend.config import TARGET_BASE_URL
 from backend.state import AttackEvent, SystemState
 
+from . import exploit_helpers as eh
+
 # Paths relative to TARGET_BASE_URL (e.g. .../target/login)
 _DEFAULT_PROBE_ROUTES: List[Tuple[str, str]] = [
     ("GET", "/login"),   # expect 405 Method Not Allowed — confirms route exists
@@ -70,10 +72,9 @@ def run(state: SystemState) -> AttackEvent:
     Returns an AttackEvent summarizing reachable endpoints (always result=success for demo;
     value is in evidence string for pruning / LLM context).
     """
-    _ = state  # recon does not yet consume memory; reserved for future prioritization
-
     lines: List[str] = []
-    with httpx.Client(headers={"User-Agent": "ACDA-recon/1.0"}) as client:
+    hdrs = eh.merge_xff_headers(state, {"User-Agent": "ACDA-recon/1.0"})
+    with httpx.Client(headers=hdrs) as client:
         for method, path in _DEFAULT_PROBE_ROUTES:
             row = _probe_once(client, method, path)
             lines.append(f"{row.get('method')} {row.get('path')} → {row.get('status', row.get('error'))}")
