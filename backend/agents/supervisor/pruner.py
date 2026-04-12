@@ -114,7 +114,11 @@ def prune_observation(state: SystemState) -> Dict[str, object]:
     mem = state.get("short_term_memory") or []
     if mem:
         prev_entry = mem[-1]
-        prev_obs = dict(prev_entry.get("obs") or {})
+        # Use raw_obs for delta computation so previously-pruned attributes
+        # retain their true prior values. Falling back to "obs" (pruned) would
+        # give delta=0 for any attribute that was pruned last step, locking
+        # those attributes into permanent zero-δH and defeating the algorithm.
+        prev_obs = dict(prev_entry.get("raw_obs") or prev_entry.get("obs") or {})
     else:
         prev_obs = dict(obs)
 

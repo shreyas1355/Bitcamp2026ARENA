@@ -152,12 +152,26 @@ def patch_node(state: SystemState) -> dict:
 
 # ── Core patch pipeline ────────────────────────────────────────────────────────
 
+_KNOWN_PATCHABLE_PATHS = {"/login", "/data", "/admin", "/files", "/transfer"}
+
+
 def _patch_one_vulnerability(vuln: dict, state: SystemState) -> PatchRecord:
     """Runs the full generate → apply → verify pipeline for one vulnerability."""
     endpoint      = vuln.get("endpoint") or ""  # guard: Gemini may return null
     exploit_payload = vuln.get("exploit_payload") or ""
     cwe           = vuln.get("cwe", "")
     vuln_name     = vuln.get("name", "Unknown vulnerability")
+
+    # Guard: skip vulnerabilities without a resolvable endpoint
+    # (e.g. behavioral/network-layer findings that have no associated route)
+    normalized = _normalize_path(endpoint) if endpoint else ""
+    if not normalized or normalized not in _KNOWN_PATCHABLE_PATHS:
+        print(f"[PATCH] Skipping '{vuln_name}' — endpoint '{endpoint}' is not patchable")
+        return _make_record(vuln_name, cwe, endpoint, exploit_payload,
+                            patch_code="", patch_applied=False,
+                            verified=False,
+                            evidence=f"Endpoint '{endpoint}' has no patchable route — requires network/config-level fix",
+                            needs_review=True)
 
     # Phase 1 — get source code of the endpoint
     function_source = _get_endpoint_source(endpoint)

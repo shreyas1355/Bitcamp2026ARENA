@@ -98,6 +98,7 @@ def risk_node(state: SystemState) -> dict:
         defense=state.get("last_defense"),
         result=_build_result_string(state),
         llm_decision=state.get("llm_decision"),
+        raw_obs=state.get("raw_observation", {}),
     )
 
     # Accumulate confirmed vulnerabilities

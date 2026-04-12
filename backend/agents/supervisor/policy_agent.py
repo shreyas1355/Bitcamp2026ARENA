@@ -128,15 +128,51 @@ def _report_from_parsed(data: Dict[str, Any], state: SystemState, raw_len: int) 
     }
 
 
+_SEVERITY_TO_CWE: Dict[str, str] = {
+    "RULE_SQLI_SIGNATURE":        "CWE-89",
+    "RULE_SQLI_ENCODED":          "CWE-89",
+    "RULE_PATH_TRAVERSAL":        "CWE-22",
+    "RULE_IDOR_SCAN":             "CWE-639",
+    "RULE_ADMIN_PROBE":           "CWE-284",
+    "RULE_CSRF":                  "CWE-352",
+    "RULE_HIGH_LOGIN_RATE":       "CWE-307",
+    "RULE_BEHAVIORAL_FINGERPRINT":"CWE-799",
+    "RULE_XFF_SPOOFING":          "CWE-346",
+}
+
+
+def _parse_vuln_string(v: str) -> Dict[str, str]:
+    """
+    Parses a vulnerabilities_found string like:
+      '[CRITICAL] RULE_SQLI_SIGNATURE on /target/login'
+    into structured fields for the fallback report.
+    """
+    import re as _re
+    severity = "medium"
+    sev_match = _re.match(r'\[(\w+)\]', v)
+    if sev_match:
+        severity = sev_match.group(1).lower()
+
+    endpoint = ""
+    ep_match = _re.search(r' on (/\S+)', v)
+    if ep_match:
+        endpoint = ep_match.group(1)
+
+    rule_id = ""
+    rule_match = _re.search(r'\]\s+(\w+)\s+on\s', v)
+    if rule_match:
+        rule_id = rule_match.group(1)
+
+    cwe = _SEVERITY_TO_CWE.get(rule_id, "")
+    return {"name": str(v)[:120], "severity": severity, "endpoint": endpoint, "cwe": cwe}
+
+
 def _fallback_report(state: SystemState, reason: str) -> Dict[str, Any]:
     return {
         "risk_score": float(state.get("risk_score", 0.0)),
         "vulnerabilities": [
             {
-                "name": str(v)[:120],
-                "severity": "medium",
-                "endpoint": "unknown",
-                "cwe": "",
+                **_parse_vuln_string(str(v)),
                 "evidence": "rule-based detection",
             }
             for v in (state.get("vulnerabilities_found") or [])[:5]

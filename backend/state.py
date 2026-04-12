@@ -163,6 +163,11 @@ class SystemState(TypedDict):
     # policy_agent ingests these into knowledge_base. CLEARED each reset.
     ioc_exports: List[Dict[str, Any]]
 
+    # ── SEMA pruning output ────────────────────────────────────────────────────
+    # Set by prune_node every step. Each entry: {attribute: str, delta_h: float}
+    # Consumed by broadcast_step_update → dashboard PruningPanel.
+    last_prune_removed: List[Dict[str, Any]]
+
 
 def get_initial_state(
     knowledge_base: List[Dict[str, Any]],

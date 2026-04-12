@@ -25,12 +25,13 @@ def append_step(
     result:          str,
     harvested_token: Optional[str] = None,
     llm_decision:    Optional[Dict[str, Any]] = None,
+    raw_obs:         Optional[Dict[str, float]] = None,
 ) -> None:
     """
     Appends one step tuple to memory M.
 
     Args:
-        obs:             pruned_observation dict at this step
+        obs:             pruned_observation dict at this step (used by evaluation_agent)
         attack:          AttackEvent dict (or None if no attack this step)
         defense:         DefenseEvent dict (or None if no defense this step)
         result:          string summary e.g. "bruteforce:success" or "sqli:blocked"
@@ -38,9 +39,12 @@ def append_step(
         llm_decision:    V2 — LLMDecision dict from Ollama strategy LLM, or None
                          Stored so evaluation_agent can surface what the LLM
                          reasoned when deciding each attack.
+        raw_obs:         full 28-attribute raw_observation (used by pruner for delta
+                         computation — must diff raw-to-raw, not pruned-to-raw).
     """
     _memory.append({
         "obs":             obs,
+        "raw_obs":         raw_obs or obs,  # fallback to obs if not provided
         "attack":          attack,
         "defense":         defense,
         "result":          result,

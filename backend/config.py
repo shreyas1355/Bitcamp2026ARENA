@@ -62,7 +62,7 @@ RATE_LIMIT_LOGIN_STUFFING  = 3    # req/min — credential stuffing finding
 RATE_LIMIT_FLOOD           = 20   # req/min — endpoint flood finding
 
 # ── Gemini ─────────────────────────────────────────────────────────────────────
-GEMINI_MODEL         = "gemini-2.5-flash-lite"
+GEMINI_MODEL         = "gemini-2.0-flash"
 GEMINI_MAX_RETRIES   = 3
 GEMINI_RETRY_DELAY_S = 5.0
 
