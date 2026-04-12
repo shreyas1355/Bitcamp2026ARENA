@@ -49,10 +49,6 @@ This project implements SEMA's three core principles:
 
 3. **Hierarchical Memory L = ⟨M, E, K⟩** — short-term step tuples (M), episode summaries (E), static knowledge base (K).
 
-## Project Structure
-
-See `PROMPT.md` for the complete implementation specification.
-
 ## Team
 
 Built at Bitcamp 2026 by Runtime Errors.
