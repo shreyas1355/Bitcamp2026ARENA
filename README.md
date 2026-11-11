@@ -4,6 +4,9 @@ A continuous, autonomous cybersecurity stress-testing system inspired by the SEM
 
 Red Team agents attack a real FastAPI application over HTTP. Blue Team agents detect and mitigate those attacks using rule-based logic. A Gemini-powered Supervisor reasons about system security posture once per episode and produces structured vulnerability reports.
 
+<img width="806" height="423" alt="gallery" src="https://github.com/user-attachments/assets/8025da88-e1fa-4da3-9781-debe7cda11a4" />
+<img width="806" height="464" alt="gallery (1)" src="https://github.com/user-attachments/assets/80dc6459-454e-4d91-8357-9bed6625151e" />
+
 ## Architecture
 
 ```
